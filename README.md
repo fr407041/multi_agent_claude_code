@@ -1,10 +1,30 @@
 # Multi-Agent Claude Code
 
-這個 repository 是一套給公司 Ubuntu 環境使用的 `Claude Code + Claude Code Router + open-source LLM` 多代理人工作流範例。
+這個 repository 是一套給公司 Ubuntu 環境使用的 `Claude Code + Claude Code Router + open-source LLM` 多代理人工作流設計與驗證紀錄。
 
 核心目標不是讓 agent 自由亂跑，而是讓任務可以被拆成小工作、分派給限制型 subagent、留下可追蹤 artifacts，並用 reviewer、watchdog、memory guard、dashboard 擋掉假成功、無限 loop、token overflow 與 router timeout。
 
-## 你會得到什麼
+## 目前發布狀態
+
+目前已上傳：
+
+- 這份首頁介紹
+- `docs/QUICKSTART.zh-TW.md`
+- `docs/DEMO_RESULT.zh-TW.md`
+- `release/RESTORE.md`
+
+完整 release bundle 已在本機產生：
+
+```text
+multi_agent_claude_code_release.zip
+multi_agent_claude_code_release.zip.base64
+```
+
+受限於目前環境沒有 `git`、`gh`、`GITHUB_TOKEN`，且 GitHub connector 是逐檔文字 API，完整 bundle 尚未全部推上 GitHub。若要完整上傳，建議下一步用本機 Git 或提供可用 token 後一次 push。
+
+## 這套系統包含什麼
+
+完整 bundle 內容包含：
 
 - `research-task-orchestrator` Claude Code skill
 - strict/custom subagent profiles
@@ -17,11 +37,11 @@
 
 ## 最簡安裝方式
 
-在公司 Ubuntu 專案根目錄中，放入本 repo 的 `.claude/skills/research-task-orchestrator`：
+還原 bundle 後，在公司 Ubuntu 專案根目錄中放入 `.claude/skills/research-task-orchestrator`：
 
 ```bash
 mkdir -p .claude/skills
-cp -R path/to/multi_agent_claude_code/.claude/skills/research-task-orchestrator .claude/skills/
+cp -R multi_agent_claude_code_release/.claude/skills/research-task-orchestrator .claude/skills/
 ```
 
 確認 Claude Code 可以看到 skill 後，可以直接用自然語言呼叫：
@@ -96,20 +116,11 @@ bash .claude/skills/research-task-orchestrator/scripts/stop_dashboard.sh
 - 但 Claude Code Router `/v1/messages` 會 timeout
 - watchdog 正確 escalated，沒有把 timeout 誤判成成功
 
-完整報告：
+詳情看：
 
 ```text
-deliverables/strict_custom_subagents_demo_report.md
+docs/DEMO_RESULT.zh-TW.md
 ```
-
-## 目錄重點
-
-- `.claude/skills/research-task-orchestrator/`：公司端要安裝的 Claude Code skill
-- `scripts/`：AI-company harness、meeting、execution、reviewer、watchdog、memory guard
-- `configs/ai_company/`：profile、限制、KPI、schema
-- `docs/ai_specs/`：demo spec
-- `tests/fixtures/ai_company_release_readiness_demo/`：demo input files
-- `deliverables/strict_custom_subagents_demo_report.md`：實測報告
 
 ## 注意
 
