@@ -1,0 +1,47 @@
+{
+  "id": "ai-company-release-readiness-strict-demo",
+  "task_type": "release_readiness",
+  "agent_profile_mode": "strict",
+  "goal": "Assess release readiness for a small internal AI-company dashboard rollout using strict custom subagents, bounded evidence, claim ledger, reviewer verification, watchdog, and memory guard.",
+  "scope_copy_from": "tests/fixtures/ai_company_release_readiness_demo",
+  "jobs": [
+    {
+      "id": "job-001",
+      "title": "Extract release evidence",
+      "owner_role": "research_agent",
+      "agent_profile": "research_agent",
+      "files": ["research_evidence.md"]
+    },
+    {
+      "id": "job-002",
+      "title": "Assess operational release risks",
+      "owner_role": "risk_reviewer",
+      "agent_profile": "risk_reviewer",
+      "files": ["risk_review.md"]
+    },
+    {
+      "id": "job-003",
+      "title": "Draft release decision",
+      "owner_role": "decision_agent",
+      "agent_profile": "decision_agent",
+      "files": ["release_decision.md"]
+    },
+    {
+      "id": "job-004",
+      "title": "Synthesize final release readiness summary",
+      "owner_role": "synthesis_agent",
+      "agent_profile": "synthesis_agent",
+      "files": ["summary.md"]
+    }
+  ],
+  "expectations": {
+    "meeting_status": "MEETING_READY",
+    "min_accepted_count": 4,
+    "require_loop_bounded": true,
+    "require_post_verify_all_passed": true,
+    "min_artifact_score": 1.0,
+    "require_profile_mode": "strict",
+    "require_profile_attachment": true,
+    "require_no_profile_policy_violations": true
+  }
+}
