@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULTS_PATH = ROOT / "configs" / "ai_company" / "task_harness.defaults.json"
 
 SUMMARY = "\n".join([
     "- Conditional go is supported by evidence from 42 unit tests, 11 passed backend API tests, and 4 of 5 router prompts, but blocker B1 and blocker B2 must close first.",
@@ -48,6 +49,21 @@ JOB_OUTPUTS = {
     ]),
     "summary.md": SUMMARY,
 }
+
+
+def read_defaults() -> dict:
+    try:
+        return json.loads(DEFAULTS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def memory_policy(defaults: dict) -> dict:
+    return {
+        "checkpoint_threshold_tokens": int(defaults.get("main_agent_memory_token_threshold", 24000)),
+        "hard_threshold_tokens": int(defaults.get("main_agent_memory_hard_threshold", 32000)),
+        "threshold_source": "configs/ai_company/task_harness.defaults.json",
+    }
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -93,6 +109,8 @@ def main() -> int:
     if args.mode != "mock":
         raise SystemExit("This published smoke harness supports --mode mock only. Configure the full internal harness for live router mode.")
 
+    defaults = read_defaults()
+    memory = memory_policy(defaults)
     spec_path = (ROOT / args.spec).resolve()
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     fixture = ROOT / spec.get("scope_copy_from", "tests/fixtures/ai_company_release_readiness_demo")
@@ -193,8 +211,10 @@ def main() -> int:
     artifact = verify_summary(SUMMARY)
     write_json(ai_dir / "artifact_verify_report.json", artifact)
     write_json(ai_dir / "main_agent_memory_guard_report.json", {
-        "memory_guard_enabled": True,
-        "checkpoint_threshold_tokens": 8000,
+        "memory_guard_enabled": bool(defaults.get("main_agent_memory_guard_enabled", True)),
+        "checkpoint_threshold_tokens": memory["checkpoint_threshold_tokens"],
+        "hard_threshold_tokens": memory["hard_threshold_tokens"],
+        "threshold_source": memory["threshold_source"],
         "memory_checkpoint_count": 0,
         "checkpoint_decision": "skipped_below_threshold",
         "checkpoint_policy_result": "not_needed_below_threshold",
@@ -222,8 +242,13 @@ def main() -> int:
             "profile_policy_violation_count": 0,
             "artifact_score": artifact["score"],
             "artifact_pass_rate": 1.0 if artifact["all_passed"] else 0.0,
+            "memory_guard_enabled": bool(defaults.get("main_agent_memory_guard_enabled", True)),
+            "checkpoint_threshold_tokens": memory["checkpoint_threshold_tokens"],
+            "hard_threshold_tokens": memory["hard_threshold_tokens"],
+            "threshold_source": memory["threshold_source"],
             "memory_checkpoint_count": 0,
             "memory_checkpoint_decision": "skipped_below_threshold",
+            "memory_checkpoint_policy_result": "not_needed_below_threshold",
         },
         "expectations": {"all_passed": artifact["all_passed"]},
         "overall_status": "pass" if artifact["all_passed"] else "fail",
