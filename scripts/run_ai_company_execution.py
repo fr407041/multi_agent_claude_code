@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility entry for execution stage.
-
-The published first-run smoke path is standalone in run_ai_company_task_harness.py.
-Full live execution requires Claude Code Router and the internal worker scripts.
-"""
+"""Compatibility execution entry for the published mock package."""
 
 from __future__ import annotations
 
@@ -12,7 +8,15 @@ import sys
 
 
 def main() -> int:
-    print(json.dumps({"execution_status": "compatibility_entry", "live_required": "Claude Code Router"}, indent=2))
+    payload = {
+        "entrypoint_type": "compatibility_stub",
+        "supported_mode": "mock_smoke_package",
+        "canonical_runner": "scripts/run_ai_company_task_harness.py",
+        "execution_status": "compatibility_stub_only",
+        "live_required": "Claude Code Router and a tested /v1/messages route",
+        "note": "Use the canonical runner for the dependency-free mock flow. Real live execution is tracked by issue #3."
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
