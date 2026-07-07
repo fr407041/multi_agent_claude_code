@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility entry for reviewer worker.
-
-The standalone mock harness writes reviewer_verdicts.json directly so the first
-run has no external dependencies.
-"""
+"""Compatibility reviewer entry for the published mock package."""
 
 from __future__ import annotations
 
@@ -12,7 +8,15 @@ import sys
 
 
 def main() -> int:
-    print(json.dumps({"reviewer_status": "compatibility_entry", "verdict": "see task_harness_report.json"}, indent=2))
+    payload = {
+        "entrypoint_type": "compatibility_stub",
+        "supported_mode": "mock_smoke_package",
+        "canonical_runner": "scripts/run_ai_company_task_harness.py",
+        "reviewer_status": "compatibility_stub_only",
+        "verdict": "see ai_company/reviewer_verdicts.json from the canonical runner",
+        "note": "The standalone mock harness writes reviewer verdicts directly for the first-run smoke test."
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
