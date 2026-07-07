@@ -1,0 +1,11 @@
+{
+  "meeting_round_limit": 3,
+  "max_reassignments_per_run": 1,
+  "main_agent_memory_guard_enabled": true,
+  "main_agent_memory_token_threshold": 24000,
+  "main_agent_memory_hard_threshold": 32000,
+  "watchdog_enabled": true,
+  "watchdog_interval_sec": 30,
+  "watchdog_stale_after_sec": 180,
+  "watchdog_max_total_actions_per_run": 3
+}
