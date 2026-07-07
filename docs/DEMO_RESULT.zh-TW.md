@@ -74,7 +74,7 @@ Demo 任務：判斷一個小型內部 dashboard 是否 release ready。
 
 ## 下一步
 
-先修 router：
+先修 router，最低限度要讓 `/v1/messages` 在 30 秒內回 OK：
 
 ```bash
 curl -sS http://127.0.0.1:3456/v1/messages \
@@ -84,8 +84,6 @@ curl -sS http://127.0.0.1:3456/v1/messages \
   -d '{"model":"qwen2.5-coder:3b","max_tokens":32,"messages":[{"role":"user","content":"Reply exactly OK"}]}'
 ```
 
-這個能在 30 秒內回 OK 後，再重跑：
+重要：目前公開 smoke package 沒有 bundled live runner。不要從此公開 checkout 直接執行 `scripts/run_common_research_with_router.sh`，因為該檔案尚未加入。
 
-```bash
-bash scripts/run_common_research_with_router.sh docs/ai_specs/ai-company-release-readiness-strict-demo.json live
-```
+Live rerun 由 GitHub issue #3 追蹤：等 real live router runner 補上並通過 `/v1/messages` preflight 後，再把 live command 放回 README/Quickstart。
