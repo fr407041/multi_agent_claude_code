@@ -8,10 +8,15 @@ import sys
 
 
 def main() -> int:
-    print(json.dumps({
+    payload = {
+        "entrypoint_type": "compatibility_stub",
+        "supported_mode": "mock_smoke_package",
+        "canonical_runner": "scripts/run_ai_company_task_harness.py",
         "default_mode": "strict",
-        "profiles": ["research_agent", "risk_reviewer", "decision_agent", "synthesis_agent", "reviewer_worker"]
-    }, indent=2))
+        "profiles": ["research_agent", "risk_reviewer", "decision_agent", "synthesis_agent", "reviewer_worker"],
+        "note": "The canonical runner emits profile metadata in ai_company/task_harness_report.json."
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
