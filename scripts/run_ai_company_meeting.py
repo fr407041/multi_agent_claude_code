@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility entry for the published mock package.
-
-The issue #1 runnable path is implemented by run_ai_company_task_harness.py.
-The full internal repository contains the richer meeting engine; this public
-entry exists so company users can see the intended module boundary.
-"""
+"""Compatibility meeting entry for the published mock package."""
 
 from __future__ import annotations
 
@@ -14,8 +9,11 @@ import sys
 
 def main() -> int:
     payload = {
+        "entrypoint_type": "compatibility_stub",
+        "supported_mode": "mock_smoke_package",
+        "canonical_runner": "scripts/run_ai_company_task_harness.py",
         "meeting_status": "MEETING_READY",
-        "note": "Use scripts/run_ai_company_task_harness.py --mode mock for the published smoke demo."
+        "note": "Use the canonical runner to produce ai_company/meeting_decision.json and the full mock artifact set."
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
