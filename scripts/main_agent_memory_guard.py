@@ -7,12 +7,22 @@ import json
 import sys
 
 
-def main() -> int:
-    print(json.dumps({
+def compatibility_payload() -> dict:
+    return {
+        "entrypoint_type": "compatibility_stub",
+        "supported_mode": "mock_smoke_package",
+        "canonical_runner": "scripts/run_ai_company_task_harness.py",
         "memory_guard_enabled": True,
+        "checkpoint_threshold_tokens": 8000,
         "memory_checkpoint_count": 0,
-        "note": "The standalone mock harness writes main_agent_memory_guard_report.json."
-    }, indent=2))
+        "checkpoint_decision": "skipped_below_threshold",
+        "checkpoint_policy_result": "not_needed_below_threshold",
+        "note": "The canonical runner writes ai_company/main_agent_memory_guard_report.json for real mock runs."
+    }
+
+
+def main() -> int:
+    print(json.dumps(compatibility_payload(), indent=2))
     return 0
 
 
