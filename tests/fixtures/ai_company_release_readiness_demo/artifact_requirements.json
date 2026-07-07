@@ -1,0 +1,25 @@
+{
+  "min_words": 40,
+  "max_words": 180,
+  "min_bullets": 3,
+  "min_numeric_mentions": 4,
+  "require_conclusion_line": true,
+  "takeaway_pattern": "Takeaway:",
+  "required_keywords_all": [
+    "conditional go",
+    "blocker",
+    "evidence",
+    "rollback",
+    "uncertainty",
+    "router",
+    "overflow"
+  ],
+  "required_patterns": [
+    "42\\s+unit",
+    "11\\s+passed",
+    "4\\s+of\\s+5",
+    "15\\s+minutes",
+    "B1",
+    "B2"
+  ]
+}
