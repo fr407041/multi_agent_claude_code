@@ -194,7 +194,10 @@ def main() -> int:
     write_json(ai_dir / "artifact_verify_report.json", artifact)
     write_json(ai_dir / "main_agent_memory_guard_report.json", {
         "memory_guard_enabled": True,
+        "checkpoint_threshold_tokens": 8000,
         "memory_checkpoint_count": 0,
+        "checkpoint_decision": "skipped_below_threshold",
+        "checkpoint_policy_result": "not_needed_below_threshold",
         "max_estimated_main_agent_tokens": 4805,
         "phases": ["after_materialize", "after_prep", "after_meeting", "after_execution", "after_post_verify"],
     })
@@ -219,6 +222,8 @@ def main() -> int:
             "profile_policy_violation_count": 0,
             "artifact_score": artifact["score"],
             "artifact_pass_rate": 1.0 if artifact["all_passed"] else 0.0,
+            "memory_checkpoint_count": 0,
+            "memory_checkpoint_decision": "skipped_below_threshold",
         },
         "expectations": {"all_passed": artifact["all_passed"]},
         "overall_status": "pass" if artifact["all_passed"] else "fail",
