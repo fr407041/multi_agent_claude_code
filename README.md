@@ -1,129 +1,101 @@
 # Multi-Agent Claude Code
 
-這個 repository 是一套給公司 Ubuntu 環境使用的 `Claude Code + Claude Code Router + open-source LLM` 多代理人工作流設計與驗證紀錄。
+Status:
 
-核心目標不是讓 agent 自由亂跑，而是讓任務可以被拆成小工作、分派給限制型 subagent、留下可追蹤 artifacts，並用 reviewer、watchdog、memory guard、dashboard 擋掉假成功、無限 loop、token overflow 與 router timeout。
+- Runnable mock demo: yes
+- Live router demo: requires Claude Code Router + open-source LLM
+- Known live blocker: some CCR `/v1/messages` setups may timeout even when the model endpoint itself works
 
-## 目前發布狀態
+This repository provides a company Ubuntu reference for an AI-company style `Claude Code + Claude Code Router + open-source LLM` workflow. The first-run path is intentionally mock-only so a fresh clone can verify the orchestration artifacts without Docker, Ollama, Claude Router, API keys, or model services.
 
-目前已上傳：
+## First Run
 
-- 這份首頁介紹
-- `docs/QUICKSTART.zh-TW.md`
-- `docs/DEMO_RESULT.zh-TW.md`
-- `release/RESTORE.md`
-
-完整 release bundle 已在本機產生：
-
-```text
-multi_agent_claude_code_release.zip
-multi_agent_claude_code_release.zip.base64
-```
-
-受限於目前環境沒有 `git`、`gh`、`GITHUB_TOKEN`，且 GitHub connector 是逐檔文字 API，完整 bundle 尚未全部推上 GitHub。若要完整上傳，建議下一步用本機 Git 或提供可用 token 後一次 push。
-
-## 這套系統包含什麼
-
-完整 bundle 內容包含：
-
-- `research-task-orchestrator` Claude Code skill
-- strict/custom subagent profiles
-- AI-company meeting -> task assignment -> execution -> review -> verify 流程
-- claim/evidence ledger，避免 subagent 只回短 summary 而漏資訊
-- main-agent memory guard，避免主 agent 長任務累積上下文爆掉
-- watchdog，偵測 missing status、timeout、reviewer missing、final verify fail
-- bundled dashboard，可用網頁看 run、agent state、failure、profile governance
-- release-readiness demo case，可驗證整套流程是否可信
-
-## 最簡安裝方式
-
-還原 bundle 後，在公司 Ubuntu 專案根目錄中放入 `.claude/skills/research-task-orchestrator`：
+Run these commands after cloning:
 
 ```bash
-mkdir -p .claude/skills
-cp -R multi_agent_claude_code_release/.claude/skills/research-task-orchestrator .claude/skills/
-```
-
-確認 Claude Code 可以看到 skill 後，可以直接用自然語言呼叫：
-
-```text
-Use the research-task-orchestrator skill to run this task with strict subagents: <你的任務>
-```
-
-或只先產生 strict-agent spec：
-
-```text
-Use the research-task-orchestrator skill to create a strict-agent spec for this task: <你的任務>
-```
-
-## 跑 demo
-
-Demo case 是一個通用公司任務：判斷小型內部 dashboard 是否 release ready。
-
-```bash
-bash scripts/run_common_research_with_router.sh docs/ai_specs/ai-company-release-readiness-strict-demo.json live
-```
-
-如果只是先確認流程與 artifacts，可用 mock：
-
-```bash
+python3 scripts/verify_install.py
 python3 scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock
 ```
 
-## 開 dashboard
+If your system uses `python` instead of `python3`:
 
-第一次使用 dashboard：
+```bash
+python scripts/verify_install.py
+python scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock
+```
+
+A successful run writes:
+
+```text
+results/ai_company_task_harness/<run-id>/
+```
+
+Expected core artifacts:
+
+```text
+meeting_decision.json
+task_harness_report.json
+reviewer_verdicts.json
+artifact_verify_report.json
+ai_company/subagent_claim_ledger.json
+```
+
+## What This Demo Proves
+
+- The repo is no longer documentation-only.
+- The strict subagent profile model is visible in artifacts.
+- The mock flow creates meeting, task assignment, execution, reviewer, claim ledger, memory guard, and verification outputs.
+- The final `task_harness_report.json` reports `overall_status=pass` for the bundled release-readiness demo.
+
+## Claude Code Skill
+
+Install the skill into a company Ubuntu project:
+
+```bash
+mkdir -p .claude/skills
+cp -R .claude/skills/research-task-orchestrator .claude/skills/
+```
+
+Then ask Claude Code:
+
+```text
+Use the research-task-orchestrator skill to run this task with strict subagents: <your task>
+```
+
+## Dashboard
+
+The skill includes dashboard install/start helpers. In a real Ubuntu project:
 
 ```bash
 bash .claude/skills/research-task-orchestrator/scripts/install_dashboard.sh
-```
-
-啟動：
-
-```bash
 bash .claude/skills/research-task-orchestrator/scripts/start_dashboard.sh
 ```
 
-瀏覽器開：
+Open:
 
 ```text
 http://127.0.0.1:5174
 ```
 
-停止：
+## Live Router Mode
+
+Live mode is separate from the mock smoke test:
 
 ```bash
-bash .claude/skills/research-task-orchestrator/scripts/stop_dashboard.sh
+bash scripts/run_common_research_with_router.sh docs/ai_specs/ai-company-release-readiness-strict-demo.json live
 ```
 
-## 如何判讀結果
+Live mode requires your company environment to already have Claude Code, Claude Code Router, and an OpenAI-compatible local/open-source LLM endpoint. The current historical live result is documented in `docs/DEMO_RESULT.zh-TW.md`: CCR health/model endpoint can work while `/v1/messages` may still timeout, so live readiness must be verified in your own router setup.
 
-成功不只看 agent 有沒有回文字，至少要看：
+## Repository Contents
 
-- `task_harness_report.json` 的 `overall_status`
-- `artifact_verify_report.json` 的 `all_passed`
-- `reviewer_verdicts.json` 是否有 `FALSE_SUCCESS_BLOCKED` 或 `PROFILE_POLICY_VIOLATION`
-- `subagent_claim_ledger.json` 是否每個 accepted claim 都有 evidence refs
-- `watchdog_report.json` 是否 `healthy`，或是否 bounded escalation
-- dashboard 的 Current run / Agent board / Trustworthiness / Watchdog
+- `.claude/skills/research-task-orchestrator/`: Claude Code skill entry and dashboard helpers
+- `scripts/verify_install.py`: first-run checkout validation
+- `scripts/run_ai_company_task_harness.py`: standalone mock demo harness
+- `docs/ai_specs/ai-company-release-readiness-strict-demo.json`: demo spec
+- `tests/fixtures/ai_company_release_readiness_demo/`: bounded demo input evidence
+- `agent_os_mvp/`: dashboard source entrypoint placeholder for company packaging
 
-## 這次 demo 的真實結果
+## Safety
 
-實際 live demo 有跑，但結論是 `NOT DELIVERABLE YET`：
-
-- strict profiles、meeting、claim ledger、reviewer、watchdog、dashboard 都有留下 artifacts
-- 本機 Ollama OpenAI-compatible endpoint 可回應
-- 但 Claude Code Router `/v1/messages` 會 timeout
-- watchdog 正確 escalated，沒有把 timeout 誤判成成功
-
-詳情看：
-
-```text
-docs/DEMO_RESULT.zh-TW.md
-```
-
-## 注意
-
-- 不包含 API key、密碼、公司資料、Docker image、模型權重。
-- 公司端假設已經有 Claude Code、Claude Code Router、open-source LLM endpoint。
-- 這套設計不承諾 Claude Code 2.1.x 有硬隔離 sandbox；strict mode 是 wrapper shaping + artifact verification + dashboard visibility。
+This repository should not contain API keys, passwords, Docker images, model weights, result caches, `.venv`, `node_modules`, or runtime logs.
