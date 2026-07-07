@@ -8,7 +8,14 @@ import sys
 
 
 def main() -> int:
-    print(json.dumps({"claim_contract": "accepted tasks require at least one claim with evidence_refs"}, indent=2))
+    payload = {
+        "entrypoint_type": "compatibility_stub",
+        "supported_mode": "mock_smoke_package",
+        "canonical_runner": "scripts/run_ai_company_task_harness.py",
+        "claim_contract": "accepted tasks require at least one claim with evidence_refs",
+        "note": "Use the canonical runner to produce ai_company/subagent_claim_ledger.json."
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
