@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "research_agent": {"mode": "strict", "tool_policy": "limited", "purpose": "Extract evidence and claims."},
+    "risk_reviewer": {"mode": "strict", "tool_policy": "limited", "purpose": "Identify release, router, timeout, and overflow risks."},
+    "decision_agent": {"mode": "strict", "tool_policy": "none", "purpose": "Make bounded accept/replan/escalate decisions."},
+    "synthesis_agent": {"mode": "strict", "tool_policy": "limited", "purpose": "Synthesize final artifacts from evidence."},
+    "reviewer_worker": {"mode": "strict", "tool_policy": "none", "purpose": "Verify claim/evidence and artifact contract."}
+  }
+}
