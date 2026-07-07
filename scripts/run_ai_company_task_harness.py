@@ -27,9 +27,9 @@ SUMMARY = "\n".join([
 
 JOB_OUTPUTS = {
     "research_evidence.md": "\n".join([
-        "- Evidence shows 42 unit tests passed, 11 backend API tests passed, and frontend/dashboard smoke returned 200.",
+        "- Fixture evidence shows 42 unit tests passed and 11 backend API checks passed; bundled dashboard runtime is not verified by this mock package.",
         "- Router evidence is bounded: 4 of 5 prompts succeeded, with one partial response retried successfully.",
-        "- Release evidence remains conditional because blocker B1 and blocker B2 are still open.",
+        "- Release evidence remains conditional because blocker B1 and blocker B2 are still open, and dashboard runtime is tracked separately.",
         "Takeaway: evidence supports conditional go, not clean go.",
         "",
     ]),
@@ -168,7 +168,7 @@ def main() -> int:
             "subagent_summary": "Mock worker produced bounded output with evidence refs.",
             "key_claims": [{"claim": "Conditional go requires evidence, rollback, router, overflow, blocker, and uncertainty gates.", "evidence_refs": evidence_refs}],
             "confidence": "medium",
-            "limitations": [],
+            "limitations": ["Bundled dashboard runtime is not verified by this mock package; track runnable dashboard work in #4."],
             "handoff_next": "Use claim ledger and reviewer verdict.",
         }
         write_json(results_dir / f"{job['id']}.status.json", status)
