@@ -1,0 +1,37 @@
+{
+  "repository": "fr407041/multi_agent_claude_code",
+  "purpose": "Runnable mock demo and company Ubuntu skill entry for research-task-orchestrator.",
+  "first_run_commands": [
+    "python3 scripts/verify_install.py",
+    "python3 scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock"
+  ],
+  "included_for_issue_1_fix": [
+    "README.md",
+    "release/RESTORE.md",
+    "scripts/verify_install.py",
+    "scripts/run_ai_company_task_harness.py",
+    "docs/ai_specs/ai-company-release-readiness-strict-demo.json",
+    "tests/fixtures/ai_company_release_readiness_demo",
+    ".claude/skills/research-task-orchestrator",
+    "agent_os_mvp/README.md"
+  ],
+  "excluded": [
+    "docker/",
+    "results/",
+    "tmp/",
+    ".venv/",
+    "node_modules/",
+    "logs/",
+    "*.db",
+    "*.sqlite",
+    "real API keys",
+    "passwords",
+    "model weights"
+  ],
+  "validated_locally": {
+    "verify_install": "pass",
+    "mock_demo_overall_status": "pass",
+    "artifact_score": 1.0,
+    "secret_scan": "no real secrets found"
+  }
+}
