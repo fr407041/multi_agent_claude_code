@@ -8,7 +8,16 @@ import sys
 
 
 def main() -> int:
-    print(json.dumps({"watchdog_status": "healthy", "last_action": "none", "repair_attempts_used": 0}, indent=2))
+    payload = {
+        "entrypoint_type": "compatibility_stub",
+        "supported_mode": "mock_smoke_package",
+        "canonical_runner": "scripts/run_ai_company_task_harness.py",
+        "watchdog_status": "healthy",
+        "last_action": "none",
+        "repair_attempts_used": 0,
+        "note": "Use the canonical runner to produce ai_company/watchdog_report.json for a mock run."
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
