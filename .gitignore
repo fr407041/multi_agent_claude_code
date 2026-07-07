@@ -1,0 +1,21 @@
+# Runtime outputs
+results/
+tmp/
+logs/
+
+# Local environments and dependencies
+.venv/
+venv/
+node_modules/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Local databases
+*.db
+*.sqlite
+
+# Local environment files
+.env
+.env.*
