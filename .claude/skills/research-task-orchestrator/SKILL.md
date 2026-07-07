@@ -32,17 +32,27 @@ python3 scripts/verify_install.py
 python3 scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock
 ```
 
-## Dashboard
+Mock mode does not require Docker, Claude Code Router, Ollama, API keys, or a local model.
 
-Install and start the bundled dashboard helpers:
+## Dashboard Placeholder
+
+This public smoke package includes dashboard helper checks, not a complete runnable web dashboard.
 
 ```bash
 bash .claude/skills/research-task-orchestrator/scripts/install_dashboard.sh
 bash .claude/skills/research-task-orchestrator/scripts/start_dashboard.sh
 ```
 
-Open `http://127.0.0.1:5174`.
+These commands verify dashboard placeholder/source presence. Do not treat `http://127.0.0.1:5174` as available until a real backend/frontend dashboard is added.
 
 ## Live Router Mode
 
-Live mode requires Claude Code Router and an OpenAI-compatible open-source LLM endpoint. Do not treat live mode as healthy until `/v1/messages` is validated, not just `/health` or `/v1/models`.
+Live mode is not bundled in this public smoke package. It requires a real Claude Code Router setup and an OpenAI-compatible open-source LLM endpoint.
+
+If models were moved to the Windows `D:` drive, update Ollama, LM Studio, or your model server first. The skill only talks to the model service endpoint; it does not load model files directly.
+
+Do not treat live mode as healthy until all of these pass:
+
+1. model endpoint `/v1/models` or `/api/tags`
+2. Claude Code Router `/health`
+3. Claude Code Router `/v1/messages`
