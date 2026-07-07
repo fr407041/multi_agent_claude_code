@@ -31,6 +31,8 @@ A successful run writes:
 results/ai_company_task_harness/<run-id>/
 ```
 
+`results/` is generated runtime output and is ignored by `.gitignore`, so the smoke test should not dirty a normal git worktree.
+
 Expected core artifacts are under `ai_company/`:
 
 ```text
@@ -40,6 +42,7 @@ results/ai_company_task_harness/<run-id>/ai_company/reviewer_verdicts.json
 results/ai_company_task_harness/<run-id>/ai_company/artifact_verify_report.json
 results/ai_company_task_harness/<run-id>/ai_company/subagent_claim_ledger.json
 results/ai_company_task_harness/<run-id>/ai_company/watchdog_report.json
+results/ai_company_task_harness/<run-id>/ai_company/main_agent_memory_guard_report.json
 ```
 
 ## What This Demo Proves
