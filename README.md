@@ -3,10 +3,11 @@
 Status:
 
 - Runnable mock demo: yes
-- Live router demo: requires Claude Code Router + open-source LLM
-- Known live blocker: some CCR `/v1/messages` setups may timeout even when the model endpoint itself works
+- Mock demo dependencies: no Docker, no Claude Code Router, no Ollama, no API key, no model service
+- Live router demo: not bundled in this public smoke package yet
+- Dashboard web app: placeholder/check only in this public smoke package
 
-This repository provides a company Ubuntu reference for an AI-company style `Claude Code + Claude Code Router + open-source LLM` workflow. The first-run path is intentionally mock-only so a fresh clone can verify the orchestration artifacts without Docker, Ollama, Claude Router, API keys, or model services.
+This repository provides a company Ubuntu reference for an AI-company style `Claude Code + Claude Code Router + open-source LLM` workflow. The current public package is intentionally mock-first so a fresh clone can verify orchestration artifacts before users configure live router, local model services, or dashboard runtime.
 
 ## First Run
 
@@ -30,14 +31,15 @@ A successful run writes:
 results/ai_company_task_harness/<run-id>/
 ```
 
-Expected core artifacts:
+Expected core artifacts are under `ai_company/`:
 
 ```text
-meeting_decision.json
-task_harness_report.json
-reviewer_verdicts.json
-artifact_verify_report.json
-ai_company/subagent_claim_ledger.json
+results/ai_company_task_harness/<run-id>/ai_company/meeting_decision.json
+results/ai_company_task_harness/<run-id>/ai_company/task_harness_report.json
+results/ai_company_task_harness/<run-id>/ai_company/reviewer_verdicts.json
+results/ai_company_task_harness/<run-id>/ai_company/artifact_verify_report.json
+results/ai_company_task_harness/<run-id>/ai_company/subagent_claim_ledger.json
+results/ai_company_task_harness/<run-id>/ai_company/watchdog_report.json
 ```
 
 ## What This Demo Proves
@@ -62,39 +64,41 @@ Then ask Claude Code:
 Use the research-task-orchestrator skill to run this task with strict subagents: <your task>
 ```
 
-## Dashboard
+## Dashboard Placeholder
 
-The skill includes dashboard install/start helpers. In a real Ubuntu project:
+This public smoke package includes dashboard helper scripts and an `agent_os_mvp` placeholder, but it does not include a runnable backend/frontend dashboard yet.
+
+You may run the helpers only as source checks:
 
 ```bash
 bash .claude/skills/research-task-orchestrator/scripts/install_dashboard.sh
 bash .claude/skills/research-task-orchestrator/scripts/start_dashboard.sh
 ```
 
-Open:
-
-```text
-http://127.0.0.1:5174
-```
+Do not expect `http://127.0.0.1:5174` to serve a web UI from this public smoke package. A runnable dashboard should be implemented as a separate follow-up.
 
 ## Live Router Mode
 
-Live mode is separate from the mock smoke test:
+Live router mode is not bundled as a runnable script in this public smoke package. Do not run `scripts/run_common_research_with_router.sh`; that script is not part of the current public checkout.
 
-```bash
-bash scripts/run_common_research_with_router.sh docs/ai_specs/ai-company-release-readiness-strict-demo.json live
-```
+For live mode, first validate your own company environment:
 
-Live mode requires your company environment to already have Claude Code, Claude Code Router, and an OpenAI-compatible local/open-source LLM endpoint. The current historical live result is documented in `docs/DEMO_RESULT.zh-TW.md`: CCR health/model endpoint can work while `/v1/messages` may still timeout, so live readiness must be verified in your own router setup.
+1. Confirm your local/open-source model service is running and points to the correct model location.
+2. If your LLM models were moved to the Windows `D:` drive, update Ollama, LM Studio, or your model server configuration before testing this repo.
+3. Validate the model endpoint, for example `/v1/models` or `/api/tags`.
+4. Validate Claude Code Router `/health`.
+5. Validate Claude Code Router `/v1/messages`; `/health` alone is not enough.
+
+The mock demo does not depend on any model path, including models stored on `D:`.
 
 ## Repository Contents
 
-- `.claude/skills/research-task-orchestrator/`: Claude Code skill entry and dashboard helpers
+- `.claude/skills/research-task-orchestrator/`: Claude Code skill entry and dashboard helper checks
 - `scripts/verify_install.py`: first-run checkout validation
 - `scripts/run_ai_company_task_harness.py`: standalone mock demo harness
 - `docs/ai_specs/ai-company-release-readiness-strict-demo.json`: demo spec
 - `tests/fixtures/ai_company_release_readiness_demo/`: bounded demo input evidence
-- `agent_os_mvp/`: dashboard source entrypoint placeholder for company packaging
+- `agent_os_mvp/`: dashboard placeholder for future packaging
 
 ## Safety
 
