@@ -18,15 +18,17 @@ find_project_root() {
 
 PROJECT_ROOT="$(find_project_root)"
 DASHBOARD_DIR="${AI_COMPANY_DASHBOARD_DIR:-${PROJECT_ROOT}/agent_os_mvp}"
+BACKEND_PORT="${AGENT_OS_BACKEND_PORT:-8010}"
+FRONTEND_PORT="${AGENT_OS_FRONTEND_PORT:-5174}"
 
 if [[ ! -x "${DASHBOARD_DIR}/backend/.venv/bin/python" || ! -d "${DASHBOARD_DIR}/frontend/node_modules" ]]; then
   bash "${SKILL_DIR}/scripts/install_dashboard.sh"
 fi
 
 cd "${DASHBOARD_DIR}"
-chmod +x ./start-dashboard.sh ./stop-dashboard.sh
-./start-dashboard.sh
+chmod +x ./start-dashboard.sh ./stop-dashboard.sh ./smoke-dashboard.sh 2>/dev/null || true
+AGENT_OS_BACKEND_PORT="${BACKEND_PORT}" AGENT_OS_FRONTEND_PORT="${FRONTEND_PORT}" ./start-dashboard.sh
 
-echo "Dashboard URL: http://127.0.0.1:5174"
-echo "Backend health: http://127.0.0.1:8010/health"
+echo "Dashboard URL: http://127.0.0.1:${FRONTEND_PORT}"
+echo "Backend health: http://127.0.0.1:${BACKEND_PORT}/health"
 echo "Artifacts root: ${PROJECT_ROOT}/results/ai_company_task_harness"
