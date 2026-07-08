@@ -66,6 +66,33 @@ def memory_policy(defaults: dict) -> dict:
     }
 
 
+def current_checkout_verification() -> dict:
+    return {
+        "mock_harness_executed": True,
+        "dashboard_runtime_verified": False,
+        "dashboard_runtime_reason": "Public smoke package has placeholder dashboard only; no bundled dashboard service is launched.",
+        "dashboard_tracking_issue": "#4",
+    }
+
+
+def scoped_evidence_refs(evidence_refs: list[str]) -> list[dict]:
+    rows = []
+    for ref in evidence_refs:
+        if ref == "test_results.md":
+            rows.append({
+                "path": ref,
+                "scope": "external_history",
+                "note": "Contains historical fixture test results, including dashboard smoke text; current checkout dashboard runtime is not verified.",
+            })
+        else:
+            rows.append({
+                "path": ref,
+                "scope": "fixture",
+                "note": "Fixture input copied into the mock run worktree.",
+            })
+    return rows
+
+
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -90,6 +117,9 @@ def verify_summary(summary: str) -> dict:
         "summary_file": "summary.md",
         "score": score,
         "all_passed": all(checks.values()),
+        "dashboard_fixture_boundary_warning": True,
+        "dashboard_current_checkout_verified": False,
+        "dashboard_boundary_note": "Dashboard smoke text in fixture data is historical fixture evidence, not current checkout verification.",
         "checks": checks,
         "metrics": {
             "word_count": len(summary.split()),
@@ -111,6 +141,7 @@ def main() -> int:
 
     defaults = read_defaults()
     memory = memory_policy(defaults)
+    checkout = current_checkout_verification()
     spec_path = (ROOT / args.spec).resolve()
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     fixture = ROOT / spec.get("scope_copy_from", "tests/fixtures/ai_company_release_readiness_demo")
@@ -146,6 +177,7 @@ def main() -> int:
     evidence_refs = [
         "release_brief.md", "test_results.md", "risk_log.md", "known_issues.md", "artifact_requirements.json",
     ]
+    evidence_refs_scoped = scoped_evidence_refs(evidence_refs)
     claims = []
     verdicts = []
     jobs = spec.get("jobs", [])
@@ -154,6 +186,11 @@ def main() -> int:
         for rel_file in files:
             (worktree / rel_file).write_text(JOB_OUTPUTS.get(rel_file, SUMMARY), encoding="utf-8")
         (worktree / "summary.md").write_text(SUMMARY, encoding="utf-8")
+        claim = {
+            "claim": "Conditional go requires evidence, rollback, router, overflow, blocker, and uncertainty gates.",
+            "evidence_refs": evidence_refs,
+            "evidence_refs_scoped": evidence_refs_scoped,
+        }
         status = {
             "id": job["id"],
             "status": "SUCCESS",
@@ -166,7 +203,9 @@ def main() -> int:
             "actual_changed_files": files,
             "actual_changed_count": len(files),
             "subagent_summary": "Mock worker produced bounded output with evidence refs.",
-            "key_claims": [{"claim": "Conditional go requires evidence, rollback, router, overflow, blocker, and uncertainty gates.", "evidence_refs": evidence_refs}],
+            "key_claims": [claim],
+            "evidence_refs_scoped": evidence_refs_scoped,
+            "current_checkout_verification": checkout,
             "confidence": "medium",
             "limitations": ["Bundled dashboard runtime is not verified by this mock package; track runnable dashboard work in #4."],
             "handoff_next": "Use claim ledger and reviewer verdict.",
@@ -176,8 +215,9 @@ def main() -> int:
         claims.append({
             "task_id": job["id"],
             "agent_profile": job.get("agent_profile"),
-            "claim": status["key_claims"][0]["claim"],
+            "claim": claim["claim"],
             "evidence_refs": evidence_refs,
+            "evidence_refs_scoped": evidence_refs_scoped,
             "confidence": "medium",
         })
         verdicts.append({
@@ -193,6 +233,7 @@ def main() -> int:
         "run_id": run_id,
         "claims": claims,
         "metrics": {"claim_count": len(claims), "claim_coverage_rate": 1.0, "uncertainty_gap_count": 0},
+        "current_checkout_verification": checkout,
     }
     write_json(ai_dir / "subagent_claim_ledger.json", claim_ledger)
 
@@ -227,6 +268,7 @@ def main() -> int:
         "spec_id": spec.get("id"),
         "mode": "mock",
         "run_dir": str(run_dir),
+        "current_checkout_verification": checkout,
         "kpis": {
             "run_id": run_id,
             "meeting_status": "MEETING_READY",
