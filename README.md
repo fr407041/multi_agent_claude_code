@@ -84,6 +84,8 @@ Do not expect `http://127.0.0.1:5174` to serve a web UI from this public smoke p
 
 Live router mode is not bundled as a runnable script in this public smoke package. Do not run `scripts/run_common_research_with_router.sh`; that script is not part of the current public checkout.
 
+Detailed live model service setup is documented in [docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md](docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md).
+
 For live mode, first validate your own company environment:
 
 1. Confirm your local/open-source model service is running and points to the correct model location.
