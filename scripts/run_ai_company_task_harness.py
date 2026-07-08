@@ -78,11 +78,11 @@ def current_checkout_verification() -> dict:
 def scoped_evidence_refs(evidence_refs: list[str]) -> list[dict]:
     rows = []
     for ref in evidence_refs:
-        if ref == "test_results.md":
+        if ref in {"release_brief.md", "test_results.md"}:
             rows.append({
                 "path": ref,
                 "scope": "external_history",
-                "note": "Contains historical fixture test results, including dashboard smoke text; current checkout dashboard runtime is not verified.",
+                "note": "Contains historical fixture dashboard smoke text; current checkout dashboard runtime is not verified.",
             })
         else:
             rows.append({
