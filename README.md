@@ -60,10 +60,22 @@ bash .claude/skills/research-task-orchestrator/scripts/install_dashboard.sh
 bash .claude/skills/research-task-orchestrator/scripts/start_dashboard.sh
 ```
 
+Run the dashboard smoke check:
+
+```bash
+bash agent_os_mvp/smoke-dashboard.sh
+```
+
 Open:
 
 ```text
 http://127.0.0.1:5174
+```
+
+The dashboard is a localhost development runtime. If `8010` or `5174` is occupied by another service, stop that service or override ports:
+
+```bash
+AGENT_OS_BACKEND_PORT=8011 AGENT_OS_FRONTEND_PORT=5175 bash agent_os_mvp/smoke-dashboard.sh
 ```
 
 Stop:
