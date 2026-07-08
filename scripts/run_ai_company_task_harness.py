@@ -3,7 +3,9 @@
 
 This file intentionally has no third-party dependencies. It proves the checkout
 can create the expected orchestration artifacts before users configure live
-Claude Code Router or a local model endpoint.
+Claude Code Router or a local model endpoint. The dashboard source is bundled,
+but this mock harness does not start web services; use agent_os_mvp/smoke-dashboard.sh
+for runtime verification.
 """
 
 from __future__ import annotations
@@ -27,9 +29,9 @@ SUMMARY = "\n".join([
 
 JOB_OUTPUTS = {
     "research_evidence.md": "\n".join([
-        "- Fixture evidence shows 42 unit tests passed and 11 backend API checks passed; bundled dashboard runtime is not verified by this mock package.",
+        "- Fixture evidence shows 42 unit tests passed and 11 backend API checks passed; dashboard source is bundled, but this mock harness does not start the web runtime.",
         "- Router evidence is bounded: 4 of 5 prompts succeeded, with one partial response retried successfully.",
-        "- Release evidence remains conditional because blocker B1 and blocker B2 are still open, and dashboard runtime is tracked separately.",
+        "- Release evidence remains conditional because blocker B1 and blocker B2 are still open, and dashboard runtime is verified by the separate smoke command.",
         "Takeaway: evidence supports conditional go, not clean go.",
         "",
     ]),
@@ -66,12 +68,25 @@ def memory_policy(defaults: dict) -> dict:
     }
 
 
+def dashboard_source_present() -> bool:
+    return bool(
+        (ROOT / "agent_os_mvp" / "backend" / "app" / "main.py").exists()
+        and (ROOT / "agent_os_mvp" / "frontend" / "package.json").exists()
+        and (ROOT / "agent_os_mvp" / "smoke-dashboard.sh").exists()
+    )
+
+
 def current_checkout_verification() -> dict:
+    bundled = dashboard_source_present()
     return {
         "mock_harness_executed": True,
+        "dashboard_runtime_bundled": bundled,
+        "dashboard_runtime_verified_by_mock_harness": False,
+        "dashboard_source_present": bundled,
         "dashboard_runtime_verified": False,
-        "dashboard_runtime_reason": "Public smoke package has placeholder dashboard only; no bundled dashboard service is launched.",
-        "dashboard_tracking_issue": "#4",
+        "dashboard_runtime_reason": "Dashboard source is bundled; the mock harness does not start web services. Run the dashboard smoke command to verify runtime.",
+        "dashboard_smoke_command": "bash agent_os_mvp/smoke-dashboard.sh",
+        "dashboard_tracking_issue": None if bundled else "#4",
     }
 
 
@@ -82,7 +97,7 @@ def scoped_evidence_refs(evidence_refs: list[str]) -> list[dict]:
             rows.append({
                 "path": ref,
                 "scope": "external_history",
-                "note": "Contains historical fixture dashboard smoke text; current checkout dashboard runtime is not verified.",
+                "note": "Contains historical fixture dashboard smoke text; run the dashboard smoke command for current checkout runtime verification.",
             })
         else:
             rows.append({
@@ -119,7 +134,8 @@ def verify_summary(summary: str) -> dict:
         "all_passed": all(checks.values()),
         "dashboard_fixture_boundary_warning": True,
         "dashboard_current_checkout_verified": False,
-        "dashboard_boundary_note": "Dashboard smoke text in fixture data is historical fixture evidence, not current checkout verification.",
+        "dashboard_runtime_bundled": dashboard_source_present(),
+        "dashboard_boundary_note": "Dashboard smoke text in fixture data is historical fixture evidence. The dashboard source is bundled; run dashboard smoke for runtime verification.",
         "checks": checks,
         "metrics": {
             "word_count": len(summary.split()),
@@ -137,7 +153,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.mode != "mock":
-        raise SystemExit("This published smoke harness supports --mode mock only. Configure the full internal harness for live router mode.")
+        raise SystemExit("This published smoke harness supports --mode mock only. Use scripts/run_common_research_with_router.sh for live router mode.")
 
     defaults = read_defaults()
     memory = memory_policy(defaults)
@@ -207,7 +223,7 @@ def main() -> int:
             "evidence_refs_scoped": evidence_refs_scoped,
             "current_checkout_verification": checkout,
             "confidence": "medium",
-            "limitations": ["Bundled dashboard runtime is not verified by this mock package; track runnable dashboard work in #4."],
+            "limitations": ["Dashboard source is bundled; this mock worker does not start web services. Run dashboard smoke for runtime verification."],
             "handoff_next": "Use claim ledger and reviewer verdict.",
         }
         write_json(results_dir / f"{job['id']}.status.json", status)
