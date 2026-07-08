@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 ROOT = Path(__file__).resolve().parents[3]
+DASHBOARD_ROOT = ROOT / "agent_os_mvp"
 RESULTS_ROOT = ROOT / "results" / "ai_company_task_harness"
 ROSTER = ["meeting_coordinator", "planner_agent", "research_agent", "risk_reviewer", "decision_agent", "synthesis_agent", "reviewer_worker"]
 
@@ -67,7 +68,7 @@ def detail_payload(run_dir: Path) -> dict[str, Any]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "app": "agent_os_mvp", "app_version": app.version, "app_root": str(DASHBOARD_ROOT), "project_root": str(ROOT), "result_root": str(RESULTS_ROOT)}
 
 @app.get("/api/ai-company-monitor")
 def monitor() -> dict[str, Any]:
