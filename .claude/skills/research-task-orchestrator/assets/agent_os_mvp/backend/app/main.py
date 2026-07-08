@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-ROOT = Path(__file__).resolve().parents[5]
+ROOT = Path(__file__).resolve().parents[3]
 RESULTS_ROOT = ROOT / "results" / "ai_company_task_harness"
 ROSTER = ["meeting_coordinator", "planner_agent", "research_agent", "risk_reviewer", "decision_agent", "synthesis_agent", "reviewer_worker"]
 
