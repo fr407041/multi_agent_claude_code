@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify that a fresh checkout contains the runnable mock demo assets."""
+"""Verify that a fresh checkout contains runnable mock, live, and dashboard assets."""
 
 from __future__ import annotations
 
@@ -13,8 +13,16 @@ REQUIRED_PATHS = [
     ".claude/skills/research-task-orchestrator/SKILL.md",
     ".claude/skills/research-task-orchestrator/scripts/install_dashboard.sh",
     ".claude/skills/research-task-orchestrator/scripts/start_dashboard.sh",
+    ".claude/skills/research-task-orchestrator/assets/agent_os_mvp/frontend/src/App.jsx",
     "scripts/run_ai_company_task_harness.py",
+    "scripts/run_ai_company_live_router.py",
+    "scripts/run_common_research_with_router.sh",
+    "scripts/worker_claude_router.py",
+    "scripts/worker_claude_router.sh",
+    "scripts/worker_claude_router_summary_template.sh",
+    "scripts/worker_claude_router_managed_single_file.sh",
     "docs/ai_specs/ai-company-release-readiness-strict-demo.json",
+    "docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md",
     "configs/ai_company/task_harness.defaults.json",
     "tests/fixtures/ai_company_release_readiness_demo/release_brief.md",
     "tests/fixtures/ai_company_release_readiness_demo/test_results.md",
@@ -22,6 +30,12 @@ REQUIRED_PATHS = [
     "tests/fixtures/ai_company_release_readiness_demo/known_issues.md",
     "tests/fixtures/ai_company_release_readiness_demo/artifact_requirements.json",
     "agent_os_mvp/README.md",
+    "agent_os_mvp/start-dashboard.sh",
+    "agent_os_mvp/stop-dashboard.sh",
+    "agent_os_mvp/backend/requirements.txt",
+    "agent_os_mvp/backend/app/main.py",
+    "agent_os_mvp/frontend/package.json",
+    "agent_os_mvp/frontend/src/App.jsx",
 ]
 
 
@@ -73,7 +87,6 @@ def main() -> int:
 
     if spec_error:
         print(f"\nSPEC ERROR: {spec_error}")
-
     if defaults_error:
         print(f"\nDEFAULTS ERROR: {defaults_error}")
 
