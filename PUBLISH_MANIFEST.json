@@ -1,19 +1,31 @@
 {
   "repository": "fr407041/multi_agent_claude_code",
-  "purpose": "Runnable mock demo and company Ubuntu skill entry for research-task-orchestrator.",
+  "purpose": "Runnable mock demo, public live router runner, and company Ubuntu skill package for research-task-orchestrator.",
   "first_run_commands": [
     "python3 scripts/verify_install.py",
     "python3 scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock"
   ],
-  "included_for_issue_1_fix": [
+  "live_run_command": "bash scripts/run_common_research_with_router.sh docs/ai_specs/ai-company-release-readiness-strict-demo.json live",
+  "dashboard_commands": [
+    "bash .claude/skills/research-task-orchestrator/scripts/install_dashboard.sh",
+    "bash .claude/skills/research-task-orchestrator/scripts/start_dashboard.sh"
+  ],
+  "included": [
     "README.md",
     "release/RESTORE.md",
     "scripts/verify_install.py",
     "scripts/run_ai_company_task_harness.py",
+    "scripts/run_common_research_with_router.sh",
+    "scripts/run_ai_company_live_router.py",
+    "scripts/worker_claude_router.py",
+    "scripts/worker_claude_router.sh",
+    "scripts/worker_claude_router_summary_template.sh",
+    "scripts/worker_claude_router_managed_single_file.sh",
     "docs/ai_specs/ai-company-release-readiness-strict-demo.json",
+    "docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md",
     "tests/fixtures/ai_company_release_readiness_demo",
     ".claude/skills/research-task-orchestrator",
-    "agent_os_mvp/README.md"
+    "agent_os_mvp"
   ],
   "excluded": [
     "docker/",
@@ -32,6 +44,8 @@
     "verify_install": "pass",
     "mock_demo_overall_status": "pass",
     "artifact_score": 1.0,
+    "frontend_build": "pass",
+    "backend_import_smoke": "pass",
     "secret_scan": "no real secrets found"
   }
 }
