@@ -41,6 +41,7 @@ mkdir -p "${DASHBOARD_DIR}"
 cp -R "${ASSET_DIR}/." "${DASHBOARD_DIR}/"
 find "${DASHBOARD_DIR}" \( -name node_modules -o -name .venv -o -name logs -o -name data -o -name dist -o -name __pycache__ \) -type d -prune -exec rm -rf {} +
 find "${DASHBOARD_DIR}" -name '*.pyc' -delete
+chmod +x "${DASHBOARD_DIR}/start-dashboard.sh" "${DASHBOARD_DIR}/stop-dashboard.sh" "${DASHBOARD_DIR}/smoke-dashboard.sh" 2>/dev/null || true
 
 cd "${DASHBOARD_DIR}/backend"
 python3 -m venv .venv
