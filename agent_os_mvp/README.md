@@ -1,23 +1,76 @@
-# Agent OS MVP Dashboard Placeholder
+# Agent OS MVP Dashboard
 
-This directory is a placeholder for a future AI-company run monitor dashboard.
+This folder contains a lightweight dashboard for AI-company run artifacts.
 
-The current public smoke package does not include a runnable backend/frontend dashboard. It exists so the skill and docs have a stable place to describe the intended dashboard package boundary.
+It is intentionally small:
 
-## Current State
+- FastAPI backend
+- SQLite metadata cache
+- React + Vite frontend
+- Linux helper scripts
 
-- Mock demo does not require dashboard startup.
-- `install_dashboard.sh` and `start_dashboard.sh` are source/placeholder checks only.
-- There is currently no bundled `frontend/package.json` or `backend/app/main.py` in this public checkout.
-- Do not expect `http://127.0.0.1:5174` to serve a web UI yet.
+## What It Reads
 
-## Intended Future Behavior
+The dashboard does not run `claude` or `ccr`. It reads artifacts from:
 
-A future runnable dashboard should:
+```text
+results/ai_company_task_harness/<run-id>/ai_company/
+```
 
-- Read run artifacts from `results/ai_company_task_harness`.
-- Show All runs summary.
-- Show Current run agent board.
-- Show trustworthiness, failures by agent, profile governance, claim/evidence, memory guard, and watchdog state.
+It shows:
 
-Track this as a separate dashboard implementation task, not as part of the mock-first smoke package.
+- All runs summary
+- Current run agent board
+- trustworthiness and artifact checks
+- failures by agent
+- profile governance
+- claim/evidence summary
+- memory guard and watchdog state
+
+## Quick Start
+
+```bash
+cd agent_os_mvp/backend
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+cd ../frontend
+npm install
+cd ..
+bash ./start-dashboard.sh
+```
+
+Open:
+
+```text
+http://127.0.0.1:5174
+```
+
+Stop:
+
+```bash
+bash ./stop-dashboard.sh
+```
+
+## Skill Install Path
+
+Company users normally use:
+
+```bash
+bash .claude/skills/research-task-orchestrator/scripts/install_dashboard.sh
+bash .claude/skills/research-task-orchestrator/scripts/start_dashboard.sh
+```
+
+The skill installer copies bundled dashboard assets into `./agent_os_mvp`, installs Python/npm dependencies, then starts the local services.
+
+## Do Not Commit Runtime Outputs
+
+Do not commit:
+
+- `backend/.venv/`
+- `frontend/node_modules/`
+- `frontend/dist/`
+- `logs/`
+- `data/`
+- `*.db`
+- `*.sqlite`
