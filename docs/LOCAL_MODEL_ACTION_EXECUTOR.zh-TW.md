@@ -86,6 +86,23 @@ python3 scripts/run_local_model_action_executor.py \
 
 `--expected-artifact` 會強制檢查指定檔案是否真的被產生。若模型只說完成但沒產生檔案，runner 會判定失敗，並在 repair budget 內重新要求模型產生修正版 manifest。
 
+`--expect-json-value FILE:PATH=VALUE` 會強制檢查 JSON artifact 內容。`PATH` 使用簡單 dot path，例如 `status_counts.passed`。數字會用數字比較，不只比對字串。
+
+範例：
+
+```bash
+python3 scripts/run_local_model_action_executor.py \
+  --task "Read data/input_records.json, write analyzer.py, run it, and produce output_summary.json with total_count, passed_count, failed_count, warning_count, and average_duration_sec." \
+  --seed-file tests/fixtures/local_action_executor_offline_case/input_records.json=data/input_records.json \
+  --expected-artifact analyzer.py \
+  --expected-artifact output_summary.json \
+  --expect-json-value output_summary.json:total_count=4 \
+  --expect-json-value output_summary.json:passed_count=2 \
+  --expect-json-value output_summary.json:failed_count=1 \
+  --expect-json-value output_summary.json:warning_count=1 \
+  --expect-json-value output_summary.json:average_duration_sec=21.25
+```
+
 ## 輸出位置
 
 每次執行會建立：
@@ -117,6 +134,9 @@ results/job-001.action_log.json
 - `expected_artifact_count`
 - `missing_expected_artifact_count`
 - `seeded_file_count`
+- `semantic_expectation_count`
+- `semantic_expectation_passed_count`
+- `semantic_expectation_failed_count`
 
 ## Live Mode 驗收建議
 
@@ -131,11 +151,13 @@ results/job-001.action_log.json
 
 - `analyzer.py` 真實存在。
 - `output_summary.json` 真實存在。
+- `output_summary.json` 內容通過 `--expect-json-value` 語意驗證。
 - `task_harness_report.json` 顯示 `overall_status=pass`。
 - `missing_expected_artifact_count=0`。
+- `semantic_expectation_failed_count=0`。
 
 ## 失敗處理
 
-若模型輸出 invalid JSON、unsupported action、path traversal、非 allowlisted command、缺少 expected artifact，runner 會 fail loudly，並把錯誤寫入 artifacts。
+若模型輸出 invalid JSON、unsupported action、path traversal、非 allowlisted command、缺少 expected artifact，或 JSON 語意值不符合 expectation，runner 會 fail loudly，並把錯誤寫入 artifacts。
 
-若啟用 repair rounds，runner 會把錯誤摘要、缺失 artifacts、失敗 command stdout/stderr 節錄回傳給模型，要求它產生更窄、更正確的 action manifest。repair 次數有上限，避免卡住。
+若啟用 repair rounds，runner 會把錯誤摘要、缺失 artifacts、失敗 command stdout/stderr 節錄、語意驗證失敗細節回傳給模型，要求它產生更窄、更正確的 action manifest。repair 次數有上限，避免卡住。
