@@ -165,6 +165,145 @@ class LocalModelActionExecutorTests(unittest.TestCase):
         self.assertEqual(report["overall_status"], "pass")
         self.assertEqual(report["kpis"]["seeded_file_count"], 1)
 
+    def test_json_semantic_expectation_passes(self) -> None:
+        proc = self.run_executor(
+            {
+                "actions": [
+                    {"type": "write_file", "path": "output_summary.json", "content": "{\"total_count\": 4, \"average_duration_sec\": 21.25, \"status_counts\": {\"passed\": 2}}\n"},
+                    {"type": "finish", "summary": "summary created", "artifacts": ["output_summary.json"]},
+                ]
+            },
+            task="create semantic summary",
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        report = json.loads(proc.stdout)
+        run_dir = Path(report["run_dir"])
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--task",
+                "create semantic summary",
+                "--manifest-file",
+                str(run_dir / "results" / "job-001.manifest.raw.txt"),
+                "--out-root",
+                str(run_dir.parent),
+                "--run-id",
+                "run-semantic-pass",
+                "--expected-artifact",
+                "output_summary.json",
+                "--expect-json-value",
+                "output_summary.json:total_count=4",
+                "--expect-json-value",
+                "output_summary.json:average_duration_sec=21.25",
+                "--expect-json-value",
+                "output_summary.json:status_counts.passed=2",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        report = json.loads(proc.stdout)
+        self.assertEqual(report["kpis"]["semantic_expectation_count"], 3)
+        self.assertEqual(report["kpis"]["semantic_expectation_failed_count"], 0)
+
+    def test_json_semantic_expectation_failure_blocks_success(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        manifest = root / "manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "actions": [
+                        {"type": "write_file", "path": "output_summary.json", "content": "{\"average_duration_sec\": 0.0}\n"},
+                        {"type": "finish", "summary": "summary created", "artifacts": ["output_summary.json"]},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--task",
+                "create wrong semantic summary",
+                "--manifest-file",
+                str(manifest),
+                "--expected-artifact",
+                "output_summary.json",
+                "--expect-json-value",
+                "output_summary.json:average_duration_sec=21.25",
+                "--out-root",
+                str(root / "runs"),
+                "--run-id",
+                "run-semantic-fail",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        report = json.loads(proc.stdout)
+        self.assertEqual(report["overall_status"], "fail")
+        self.assertEqual(report["kpis"]["semantic_expectation_failed_count"], 1)
+        artifact = json.loads((Path(report["run_dir"]) / "ai_company" / "artifact_verify_report.json").read_text())
+        self.assertFalse(artifact["parsed"]["semantic_expectations_passed"])
+
+    def test_iterative_repair_after_semantic_expectation_failure(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        responses = [
+            json.dumps(
+                {
+                    "actions": [
+                        {"type": "write_file", "path": "output_summary.json", "content": "{\"average_duration_sec\": 0.0}\n"},
+                        {"type": "finish", "summary": "wrong summary", "artifacts": ["output_summary.json"]},
+                    ]
+                }
+            ),
+            json.dumps(
+                {
+                    "actions": [
+                        {"type": "write_file", "path": "output_summary.json", "content": "{\"average_duration_sec\": 21.25}\n"},
+                        {"type": "finish", "summary": "corrected summary", "artifacts": ["output_summary.json"]},
+                    ]
+                }
+            ),
+        ]
+        with mock.patch.object(executor, "call_ccr_for_manifest", side_effect=responses):
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "run_local_model_action_executor.py",
+                    "--task",
+                    "repair semantic summary",
+                    "--out-root",
+                    str(root / "runs"),
+                    "--run-id",
+                    "run-semantic-repair",
+                    "--expected-artifact",
+                    "output_summary.json",
+                    "--expect-json-value",
+                    "output_summary.json:average_duration_sec=21.25",
+                    "--max-repair-rounds",
+                    "1",
+                ],
+            ):
+                code = executor.main()
+        self.assertEqual(code, 0)
+        report = json.loads((root / "runs" / "run-semantic-repair" / "ai_company" / "task_harness_report.json").read_text())
+        self.assertEqual(report["overall_status"], "pass")
+        self.assertEqual(report["kpis"]["repair_rounds_used"], 1)
+        self.assertEqual(report["kpis"]["semantic_expectation_failed_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
