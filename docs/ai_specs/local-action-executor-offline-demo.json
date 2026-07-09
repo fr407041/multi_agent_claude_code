@@ -12,10 +12,18 @@
     "analyzer.py",
     "output_summary.json"
   ],
+  "semantic_expectations": [
+    "output_summary.json:total_count=4",
+    "output_summary.json:passed_count=2",
+    "output_summary.json:failed_count=1",
+    "output_summary.json:warning_count=1",
+    "output_summary.json:average_duration_sec=21.25"
+  ],
   "success_criteria": [
     "The model writes analyzer.py inside the run worktree.",
     "The runner executes analyzer.py with an allowlisted Python command.",
     "output_summary.json is created.",
+    "output_summary.json has semantically correct summary values.",
     "task_harness_report.json reports overall_status=pass.",
     "No external website or PTT access is required."
   ]
