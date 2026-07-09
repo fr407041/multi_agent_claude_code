@@ -160,4 +160,21 @@ results/job-001.action_log.json
 
 若模型輸出 invalid JSON、unsupported action、path traversal、非 allowlisted command、缺少 expected artifact，或 JSON 語意值不符合 expectation，runner 會 fail loudly，並把錯誤寫入 artifacts。
 
-若啟用 repair rounds，runner 會把錯誤摘要、缺失 artifacts、失敗 command stdout/stderr 節錄、語意驗證失敗細節回傳給模型，要求它產生更窄、更正確的 action manifest。repair 次數有上限，避免卡住。
+若啟用 repair rounds，runner 會把錯誤摘要、缺失 artifacts、失敗 command stdout/stderr 節錄回傳給模型，要求它產生更窄、更正確的 action manifest。repair 次數有上限，避免卡住。
+## Schema-Aware Repair Feedback
+
+When semantic validation fails, the runner now includes input schema hints in the next bounded repair prompt.
+
+- Use `--seed-file SRC=DEST` for JSON fixture/input files.
+- The runner copies the file into the run worktree.
+- The runner infers fields such as `[].duration_sec`, `[].status`, or nested dot paths.
+- If `--expect-json-value` fails, repair feedback includes `schema_context_for_repair`.
+- Optional: use `--schema-file path/to/schema_or_notes.json` to provide explicit schema/context hints.
+
+Generated artifacts:
+- `ai_company/schema_context.json`
+- `ai_company/artifact_verify_report.json.parsed.schema_context`
+- `task_harness_report.json.kpis.schema_context_available`
+- `task_harness_report.json.kpis.schema_context_source_count`
+
+This keeps the open-source model responsible for writing the solution, while the runner gives deterministic hints about available input fields. It prevents the known broad-prompt failure where a model repeatedly uses an invented field such as `duration` when the seeded fixture actually contains `duration_sec`.
