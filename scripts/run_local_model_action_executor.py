@@ -224,12 +224,111 @@ def validate_expected_artifacts(run_dir: Path, expected_artifacts: list[str]) ->
     return missing
 
 
+def parse_expected_value(raw: str) -> Any:
+    lowered = raw.strip().lower()
+    if lowered in {"true", "false", "null"}:
+        return json.loads(lowered)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+
+
+def parse_json_expectation(spec: str) -> tuple[str, str, Any]:
+    artifact, sep, rest = spec.partition(":")
+    if not sep or not artifact or not rest:
+        raise ValueError(f"expect-json-value must use FILE:PATH=VALUE format: {spec}")
+    json_path, eq, raw_value = rest.partition("=")
+    if not eq or not json_path:
+        raise ValueError(f"expect-json-value must use FILE:PATH=VALUE format: {spec}")
+    return artifact, json_path, parse_expected_value(raw_value)
+
+
+def read_dot_path(payload: Any, dot_path: str) -> tuple[bool, Any]:
+    current = payload
+    for part in dot_path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return False, None
+        current = current[part]
+    return True, current
+
+
+def values_equal(expected: Any, actual: Any) -> bool:
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return expected is actual
+    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+        return abs(float(expected) - float(actual)) <= 1e-9
+    return expected == actual
+
+
+def validate_json_expectations(run_dir: Path, expectation_specs: list[str]) -> list[dict[str, Any]]:
+    worktree = run_dir / "worktree"
+    results = []
+    for spec in expectation_specs:
+        artifact = ""
+        json_path = ""
+        expected: Any = None
+        try:
+            artifact, json_path, expected = parse_json_expectation(spec)
+            target = ensure_within(worktree, artifact)
+            if not target.exists() or not target.is_file():
+                results.append(
+                    {
+                        "artifact": artifact,
+                        "path": json_path,
+                        "expected": expected,
+                        "actual": None,
+                        "status": "failed",
+                        "reason": "artifact_missing",
+                    }
+                )
+                continue
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            found, actual = read_dot_path(payload, json_path)
+            if not found:
+                results.append(
+                    {
+                        "artifact": artifact,
+                        "path": json_path,
+                        "expected": expected,
+                        "actual": None,
+                        "status": "failed",
+                        "reason": "path_missing",
+                    }
+                )
+                continue
+            status = "passed" if values_equal(expected, actual) else "failed"
+            results.append(
+                {
+                    "artifact": artifact,
+                    "path": json_path,
+                    "expected": expected,
+                    "actual": actual,
+                    "status": status,
+                    "reason": "" if status == "passed" else "value_mismatch",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - user-facing validator errors belong in artifacts.
+            results.append(
+                {
+                    "artifact": artifact,
+                    "path": json_path,
+                    "expected": expected,
+                    "actual": None,
+                    "status": "failed",
+                    "reason": str(exc),
+                }
+            )
+    return results
+
+
 def build_repair_feedback(
     error: str,
     action_log: list[dict[str, Any]],
     generated_files: list[str],
     expected_artifacts: list[str],
     missing_expected: list[str],
+    semantic_results: list[dict[str, Any]] | None = None,
 ) -> str:
     failed_actions = [item for item in action_log if item.get("status") == "failed"]
     excerpts = []
@@ -252,6 +351,7 @@ def build_repair_feedback(
             f"generated_files: {generated_files}",
             f"expected_artifacts: {expected_artifacts}",
             f"missing_expected_artifacts: {missing_expected}",
+            f"semantic_expectation_failures: {[item for item in (semantic_results or []) if item.get('status') == 'failed']}",
             "failed_action_excerpts:",
             *excerpts,
         ]
@@ -290,6 +390,7 @@ def build_artifacts(
     expected_artifacts: list[str] | None = None,
     missing_expected_artifacts: list[str] | None = None,
     seeded_files: list[str] | None = None,
+    semantic_results: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     ai_dir = run_dir / "ai_company"
     results_dir = run_dir / "results"
@@ -355,6 +456,8 @@ def build_artifacts(
     expected_artifacts = expected_artifacts or []
     missing_expected_artifacts = missing_expected_artifacts or []
     seeded_files = seeded_files or []
+    semantic_results = semantic_results or []
+    semantic_failed = [item for item in semantic_results if item.get("status") == "failed"]
     artifact = {
         "parsed": {
             "all_passed": status == "SUCCESS",
@@ -363,9 +466,12 @@ def build_artifacts(
                 "generated_file_exists": bool(generated_files),
                 "executor_success": status == "SUCCESS",
                 "expected_artifacts_present": not missing_expected_artifacts,
+                "semantic_expectations_passed": not semantic_failed,
             },
             "expected_artifacts": expected_artifacts,
             "missing_expected_artifacts": missing_expected_artifacts,
+            "semantic_expectations": semantic_results,
+            "semantic_expectations_passed": not semantic_failed,
         }
     }
     write_json(ai_dir / "artifact_verify_report.json", artifact)
@@ -389,6 +495,9 @@ def build_artifacts(
             "expected_artifact_count": len(expected_artifacts),
             "missing_expected_artifact_count": len(missing_expected_artifacts),
             "seeded_file_count": len(seeded_files),
+            "semantic_expectation_count": len(semantic_results),
+            "semantic_expectation_passed_count": len(semantic_results) - len(semantic_failed),
+            "semantic_expectation_failed_count": len(semantic_failed),
         },
         "overall_status": "pass" if status == "SUCCESS" else "fail",
     }
@@ -407,6 +516,7 @@ def main() -> int:
     parser.add_argument("--timeout-sec", type=int, default=int(os.environ.get("LOCAL_ACTION_MODEL_TIMEOUT_SEC", "180")))
     parser.add_argument("--allowed-commands", default=os.environ.get("LOCAL_ACTION_ALLOWED_COMMANDS", ",".join(sorted(DEFAULT_ALLOWED_COMMANDS))))
     parser.add_argument("--expected-artifact", action="append", default=[])
+    parser.add_argument("--expect-json-value", action="append", default=[])
     parser.add_argument("--seed-file", action="append", default=[])
     parser.add_argument("--max-repair-rounds", type=int, default=int(os.environ.get("LOCAL_ACTION_MAX_REPAIR_ROUNDS", "3")))
     args = parser.parse_args()
@@ -427,6 +537,7 @@ def main() -> int:
     final_summary = ""
     error = ""
     missing_expected_artifacts: list[str] = []
+    semantic_results: list[dict[str, Any]] = []
     status = "FAILED"
     repair_feedback = ""
     max_attempts = 1 if args.manifest_file else max(1, args.max_repair_rounds + 1)
@@ -450,6 +561,15 @@ def main() -> int:
                     generated_files,
                     final_summary,
                 )
+            semantic_results = validate_json_expectations(run_dir, args.expect_json_value)
+            semantic_failures = [item for item in semantic_results if item.get("status") == "failed"]
+            if semantic_failures:
+                raise ActionExecutionError(
+                    "semantic expectations failed: " + json.dumps(semantic_failures, ensure_ascii=False),
+                    action_log,
+                    generated_files,
+                    final_summary,
+                )
             generated_files = sorted(set([*generated_files, *args.expected_artifact]))
             status = "SUCCESS"
             error = ""
@@ -466,7 +586,15 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             error = str(exc)
         missing_expected_artifacts = validate_expected_artifacts(run_dir, args.expected_artifact)
-        repair_feedback = build_repair_feedback(error, action_log, generated_files, args.expected_artifact, missing_expected_artifacts)
+        semantic_results = validate_json_expectations(run_dir, args.expect_json_value)
+        repair_feedback = build_repair_feedback(
+            error,
+            action_log,
+            generated_files,
+            args.expected_artifact,
+            missing_expected_artifacts,
+            semantic_results,
+        )
     report = build_artifacts(
         run_dir,
         run_id,
@@ -481,6 +609,7 @@ def main() -> int:
         expected_artifacts=args.expected_artifact,
         missing_expected_artifacts=missing_expected_artifacts,
         seeded_files=seeded_files,
+        semantic_results=semantic_results,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if status == "SUCCESS" else 1
