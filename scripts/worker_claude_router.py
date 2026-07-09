@@ -23,7 +23,7 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def file_state(scope: Path, files: list[str]) -> dict[str, dict[str, Any]]:
-    state: dict[str, dict[str, Any]] = {}
+    state: dict[str, Any] = {}
     for rel in files:
         path = scope / rel
         entry: dict[str, Any] = {"exists": path.exists()}
@@ -42,19 +42,11 @@ def call_ccr(prompt: str, timeout: int) -> tuple[int, str]:
     model = os.environ.get("CLAUDE_MODEL_ALIAS", "ollama,qwen2.5-coder:3b")
     api_key = os.environ.get("CCR_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "local-router-token"))
     max_tokens = int(os.environ.get("CCR_MAX_OUTPUT_TOKENS", "1024"))
-    payload = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
-    }
+    payload = {"model": model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]}
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        },
+        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
         method="POST",
     )
     try:
@@ -89,7 +81,15 @@ def status_from_raw(raw: str, exit_code: int) -> str:
         return match.group(1)
     if exit_code == 124:
         return "CHILD_TIMEOUT"
-    if any(token in lowered for token in ["maximum context length", "token overflow", "context window", "output tokens"]):
+    overflow_error_patterns = [
+        r"maximum context length (?:is|of|exceeded)",
+        r"context length exceeded",
+        r"context window exceeded",
+        r"requested \d+ output tokens",
+        r"output tokens exceeds?",
+        r"too many tokens",
+    ]
+    if exit_code != 0 and any(re.search(pattern, lowered) for pattern in overflow_error_patterns):
         return "OVERFLOW_DETECTED"
     if exit_code != 0 or not raw.strip():
         return "ROUTER_ERROR"
@@ -135,6 +135,9 @@ def extract_summary_content(raw: str) -> str:
     content_block = re.search(r"CONTENT_START\s*\n(.*?)\nCONTENT_END", text, flags=re.S)
     if content_block:
         return content_block.group(1).strip() + "\n"
+    content_start = re.search(r"CONTENT_START\s*\n(.*)", text, flags=re.S)
+    if content_start:
+        return content_start.group(1).strip() + "\n"
     lines = [line for line in text.splitlines() if not re.match(r"^(STATUS|FILES|TESTS|SUMMARY):", line.strip(), flags=re.I)]
     cleaned = "\n".join(lines).strip()
     return (cleaned or text) + "\n"
@@ -143,11 +146,33 @@ def extract_summary_content(raw: str) -> str:
 def build_prompt(job: dict[str, Any], worker_kind: str, scope: Path) -> str:
     files = job.get("files", [])
     context_blocks = []
-    for rel in files:
+    context_files = [str(item) for item in job.get("template_context_files", [])]
+    if worker_kind == "summary":
+        for rel in ["evidence_summary.txt", "summary_context.txt"]:
+            if rel not in context_files and (scope / rel).exists():
+                context_files.append(rel)
+    for rel in [*context_files, *files]:
         path = scope / rel
         if path.exists() and path.is_file():
             text = path.read_text(encoding="utf-8", errors="ignore")
             context_blocks.append(f"File: {rel}\n{text[:6000]}")
+    requirements_path = scope / "artifact_requirements.json"
+    verifier_contract = ""
+    if worker_kind == "summary" and requirements_path.exists():
+        requirements_text = requirements_path.read_text(encoding="utf-8", errors="ignore")
+        context_blocks.append(f"Verifier contract: artifact_requirements.json\n{requirements_text[:3000]}")
+        try:
+            requirements = json.loads(requirements_text)
+            exact_patterns = ", ".join(str(item) for item in requirements.get("required_patterns", []))
+            exact_keywords = ", ".join(str(item) for item in requirements.get("required_keywords_all", []))
+            verifier_contract = f"""
+Verifier must pass:
+- Maximum words: {requirements.get("max_words", "not specified")}
+- Required keywords: {exact_keywords}
+- Required exact/numeric patterns: {exact_patterns}
+"""
+        except json.JSONDecodeError:
+            verifier_contract = ""
     context = "\n\n".join(context_blocks) or "No target file content exists yet."
     if worker_kind == "summary":
         return f"""You are a strict synthesis worker.
@@ -157,9 +182,24 @@ Task:
 
 Evidence and target context:
 {context}
+{verifier_contract}
 
-Return only the final markdown content for the requested target file.
-Keep it concise, evidence-grounded, and explicit about uncertainty.
+Return exactly this format:
+CONTENT_START
+- <bullet 1>
+- <bullet 2>
+- <bullet 3>
+Takeaway: <one short sentence>
+CONTENT_END
+
+Keep the content concise, evidence-grounded, and explicit about uncertainty.
+Use exactly 3 bullets plus 1 Takeaway sentence.
+Each bullet must be one sentence.
+Stay under the verifier maximum word count.
+If the context or verifier contract contains exact numeric phrases or regex-like patterns, preserve those exact phrases.
+Do not add headings unless the task explicitly asks for headings.
+Do not use nested bullets.
+Do not claim that you wrote a file. The wrapper writes files after validating this content.
 """
     return f"""You are a bounded Claude worker.
 
@@ -179,6 +219,7 @@ TESTS: <what was run or not-run>
 SUMMARY: <short summary>
 
 Do not output long reasoning. If you need broader scope, return NEEDS_REPLAN.
+Do not claim that you used tools or wrote files. The wrapper verifies side effects.
 """
 
 
@@ -221,12 +262,15 @@ def main() -> int:
         test_output_file.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
     else:
         test_output_file.write_text("not-run\n", encoding="utf-8")
+    failed_reason = ""
     if status == "SUCCESS" and pseudo_tool_call_detected:
         status = "PSEUDO_TOOL_CALL_DETECTED"
     if status == "SUCCESS" and bool(job.get("require_change")) and not actual_changed_files:
         status = "FAILED"
+        failed_reason = "required file did not change"
     if status == "SUCCESS" and test_command and test_exit_code != 0:
         status = "FAILED"
+        failed_reason = "test command failed"
     verification_note = "verified"
     if status == "ROUTER_ERROR":
         verification_note = "router transport or upstream failure blocked the child request"
@@ -235,7 +279,7 @@ def main() -> int:
     elif status == "OVERFLOW_DETECTED":
         verification_note = "child worker reported context/output pressure"
     elif status == "FAILED":
-        verification_note = "worker output did not satisfy change/test contract"
+        verification_note = failed_reason or "worker output did not satisfy change/test contract"
     elif status == "PSEUDO_TOOL_CALL_DETECTED":
         verification_note = "model returned a pseudo tool call, but no executable side effect was verified"
     payload = {
@@ -248,7 +292,9 @@ def main() -> int:
         "actual_changed_files": actual_changed_files,
         "actual_changed_count": len(actual_changed_files),
         "pseudo_tool_call_detected": pseudo_tool_call_detected,
-        "failure_family": "pseudo_tool_call" if status == "PSEUDO_TOOL_CALL_DETECTED" else "",
+        "failure_family": (
+            "pseudo_tool_call" if status == "PSEUDO_TOOL_CALL_DETECTED" else "failed" if status == "FAILED" else "overflow" if status == "OVERFLOW_DETECTED" else "router" if status == "ROUTER_ERROR" else "timeout" if status == "CHILD_TIMEOUT" else ""
+        ),
         "verification_note": verification_note,
         "raw_file": str(raw_file),
         "exec_log_file": str(exec_log_file),
@@ -259,27 +305,12 @@ def main() -> int:
         "test_exit_code": test_exit_code,
         "exit_code": exit_code,
         "duration_sec": round(time.time() - start, 3),
-        "key_claims": [
-            {
-                "claim": verification_note if status != "SUCCESS" else "Worker result is bounded to assigned files and CCR output.",
-                "evidence_refs": [str(raw_file), *[str(scope / rel) for rel in files]],
-            }
-        ],
+        "key_claims": [{"claim": verification_note if status != "SUCCESS" else "Worker result is bounded to assigned files and CCR output.", "evidence_refs": [str(raw_file), *[str(scope / rel) for rel in files]]}],
         "confidence": "medium" if status == "SUCCESS" else "low",
         "limitations": ["Live worker quality depends on configured CCR model and endpoint."],
         "handoff_next": "Review status, raw output, and claim ledger before accepting.",
     }
-    for key in [
-        "agent_profile",
-        "profile_mode",
-        "effective_policy_level",
-        "effective_allowed_skills",
-        "effective_allowed_mcp_groups",
-        "effective_tool_policy",
-        "profile_settings_overlay",
-        "profile_scope_limits",
-        "profile_recovery_policy",
-    ]:
+    for key in ["agent_profile", "profile_mode", "effective_policy_level", "effective_allowed_skills", "effective_allowed_mcp_groups", "effective_tool_policy", "profile_settings_overlay", "profile_scope_limits", "profile_recovery_policy"]:
         if key in job:
             payload[key] = job[key]
     write_json(status_file, payload)
