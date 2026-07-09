@@ -100,6 +100,8 @@ All paths are restricted to the run worktree, commands are allowlisted, and dash
 
 See [docs/LOCAL_MODEL_ACTION_EXECUTOR.zh-TW.md](docs/LOCAL_MODEL_ACTION_EXECUTOR.zh-TW.md) for the manifest contract and safety rules.
 
+Semantic validators are schema-aware during bounded repair. When `--seed-file` points to JSON input, the runner infers available input fields and includes those field hints in repair feedback. This is important for local models such as `qwen2.5-coder:14b`: if a broad prompt uses the wrong field name, for example `duration` instead of `duration_sec`, the runner blocks false success and the next repair attempt receives the actual seeded schema context.
+
 Company/offline acceptance should use a local fixture instead of public websites:
 
 ```bash
