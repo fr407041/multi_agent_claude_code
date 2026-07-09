@@ -52,6 +52,15 @@ Stop:
 bash ./stop-dashboard.sh
 ```
 
+## Frontend Toolchain
+
+The frontend is pinned to a reproducible Vite 7 toolchain:
+
+- `vite: 7.3.6`
+- `@vitejs/plugin-react: 5.2.0`
+
+Clean `npm ci` and `npm run build` are expected to pass on Node 20 and Node 22.
+
 ## Skill Install Path
 
 Company users normally use:
