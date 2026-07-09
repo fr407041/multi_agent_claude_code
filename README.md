@@ -37,6 +37,7 @@ The live runner fails fast in this order:
 1. model endpoint: `MODEL_MODELS_URL` or `MODEL_TAGS_URL`
 2. Claude Code Router `/health`
 3. Claude Code Router `/v1/messages`
+4. verified side-effect smoke: the model must produce the expected file content, not merely claim that it did
 
 Useful environment overrides:
 
@@ -44,10 +45,13 @@ Useful environment overrides:
 export MODEL_MODELS_URL=http://127.0.0.1:11434/v1/models
 export MODEL_TAGS_URL=http://127.0.0.1:11434/api/tags
 export CCR_BASE_URL=http://127.0.0.1:3456
-export CLAUDE_MODEL_ALIAS=sonnet
+export CCR_API_KEY=local-router-token
+export CLAUDE_MODEL_ALIAS=ollama,qwen2.5-coder:3b
 export CCR_PREFERRED_MODEL=qwen2.5-coder:3b
 export CCR_MAX_OUTPUT_TOKENS=1024
 ```
+
+The live runner performs a side-effect smoke check before the full live harness. The check is intentionally strict: the model must create the expected file content, not merely reply that it created it. If a qwen2.5 run returns a plausible success message without the verified file side effect, the run is blocked as `FAILED` instead of being counted as a successful AI-company execution.
 
 Detailed D-drive and local model service setup is documented in [docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md](docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md). Moving models to Windows `D:` affects only the model service configuration, not mock mode.
 
@@ -105,8 +109,9 @@ Use the research-task-orchestrator skill to run this task with strict subagents:
 
 - `.claude/skills/research-task-orchestrator/`: Claude Code skill entry, role profiles, dashboard installer, dashboard assets
 - `scripts/verify_install.py`: first-run checkout validation
-- `scripts/run_ai_company_task_harness.py`: mock harness entrypoint
-- `scripts/run_common_research_with_router.sh`: live router preflight + live runner
+- `scripts/run_ai_company_task_harness.py`: mock/live harness entrypoint
+- `scripts/run_common_research_with_router.sh`: live router preflight + harness runner
+- `scripts/smoke_live_tool_side_effect.py`: live side-effect guard for local open-source models
 - `scripts/worker_claude_router*.sh`: repo-local live worker wrappers
 - `docs/ai_specs/ai-company-release-readiness-strict-demo.json`: demo spec
 - `tests/fixtures/ai_company_release_readiness_demo/`: bounded demo input evidence
