@@ -304,6 +304,76 @@ class LocalModelActionExecutorTests(unittest.TestCase):
         self.assertEqual(report["kpis"]["repair_rounds_used"], 1)
         self.assertEqual(report["kpis"]["semantic_expectation_failed_count"], 0)
 
+    def test_semantic_repair_feedback_includes_seed_schema_context(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        seed = root / "input_records.json"
+        seed.write_text(
+            json.dumps(
+                [
+                    {"id": "a", "status": "passed", "duration_sec": 10.0},
+                    {"id": "b", "status": "failed", "duration_sec": 32.5},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        responses = [
+            json.dumps(
+                {
+                    "actions": [
+                        {"type": "write_file", "path": "output_summary.json", "content": "{\"average_duration\": 0.0}\n"},
+                        {"type": "finish", "summary": "wrong field used", "artifacts": ["output_summary.json"]},
+                    ]
+                }
+            ),
+            json.dumps(
+                {
+                    "actions": [
+                        {"type": "write_file", "path": "output_summary.json", "content": "{\"average_duration\": 21.25}\n"},
+                        {"type": "finish", "summary": "schema-aware correction", "artifacts": ["output_summary.json"]},
+                    ]
+                }
+            ),
+        ]
+        calls: list[tuple[str, int, str]] = []
+
+        def fake_call(task: str, timeout_sec: int, repair_feedback: str = "") -> str:
+            calls.append((task, timeout_sec, repair_feedback))
+            return responses[len(calls) - 1]
+
+        with mock.patch.object(executor, "call_ccr_for_manifest", side_effect=fake_call):
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "run_local_model_action_executor.py",
+                    "--task",
+                    "calculate average duration from seeded records",
+                    "--out-root",
+                    str(root / "runs"),
+                    "--run-id",
+                    "run-schema-aware-repair",
+                    "--seed-file",
+                    f"{seed}=data/input_records.json",
+                    "--expected-artifact",
+                    "output_summary.json",
+                    "--expect-json-value",
+                    "output_summary.json:average_duration=21.25",
+                    "--max-repair-rounds",
+                    "1",
+                ],
+            ):
+                code = executor.main()
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertIn("schema_context_for_repair", calls[1][2])
+        self.assertIn("duration_sec", calls[1][2])
+        report = json.loads((root / "runs" / "run-schema-aware-repair" / "ai_company" / "task_harness_report.json").read_text())
+        self.assertTrue(report["kpis"]["schema_context_available"])
+        schema_context = json.loads((root / "runs" / "run-schema-aware-repair" / "ai_company" / "schema_context.json").read_text())
+        self.assertTrue(schema_context["schema_context_available"])
+
 
 if __name__ == "__main__":
     unittest.main()
