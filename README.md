@@ -51,6 +51,14 @@ export CCR_PREFERRED_MODEL=qwen2.5-coder:3b
 export CCR_MAX_OUTPUT_TOKENS=1024
 ```
 
+For Claude Code Router, prefer comma provider syntax when selecting local Ollama models:
+
+```bash
+export CLAUDE_MODEL_ALIAS=ollama,qwen2.5-coder:7b
+```
+
+Slash syntax such as `ollama/qwen2.5-coder:7b` may not route as expected in all CCR setups.
+
 The live runner performs a side-effect smoke check before the full live harness. The check is intentionally strict: the model must create the expected file content, not merely reply that it created it. If a qwen2.5 run returns a plausible success message without the verified file side effect, the run is blocked as `FAILED` instead of being counted as a successful AI-company execution.
 
 Detailed D-drive and local model service setup is documented in [docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md](docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md). Moving models to Windows `D:` affects only the model service configuration, not mock mode.
