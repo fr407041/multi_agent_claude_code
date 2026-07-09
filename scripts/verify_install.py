@@ -15,10 +15,12 @@ REQUIRED_PATHS = [
     ".claude/skills/research-task-orchestrator/scripts/start_dashboard.sh",
     ".claude/skills/research-task-orchestrator/scripts/smoke_dashboard.sh",
     ".claude/skills/research-task-orchestrator/assets/agent_os_mvp/smoke-dashboard.sh",
+    ".claude/skills/research-task-orchestrator/assets/agent_os_mvp/frontend/package-lock.json",
     ".claude/skills/research-task-orchestrator/assets/agent_os_mvp/frontend/src/App.jsx",
     "scripts/run_ai_company_task_harness.py",
     "scripts/run_ai_company_live_router.py",
     "scripts/run_common_research_with_router.sh",
+    "scripts/smoke_live_tool_side_effect.py",
     "scripts/worker_claude_router.py",
     "scripts/worker_claude_router.sh",
     "scripts/worker_claude_router_summary_template.sh",
@@ -38,6 +40,7 @@ REQUIRED_PATHS = [
     "agent_os_mvp/backend/requirements.txt",
     "agent_os_mvp/backend/app/main.py",
     "agent_os_mvp/frontend/package.json",
+    "agent_os_mvp/frontend/package-lock.json",
     "agent_os_mvp/frontend/src/App.jsx",
 ]
 
