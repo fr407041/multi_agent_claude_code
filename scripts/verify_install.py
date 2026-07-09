@@ -20,6 +20,7 @@ REQUIRED_PATHS = [
     "scripts/run_ai_company_task_harness.py",
     "scripts/run_ai_company_live_router.py",
     "scripts/run_common_research_with_router.sh",
+    "scripts/run_local_model_action_executor.py",
     "scripts/smoke_live_tool_side_effect.py",
     "scripts/worker_claude_router.py",
     "scripts/worker_claude_router.sh",
