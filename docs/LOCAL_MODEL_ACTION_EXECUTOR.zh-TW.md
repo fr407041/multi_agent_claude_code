@@ -2,11 +2,21 @@
 
 ## 目的
 
-本功能解決 local open-source model live mode 的核心問題：模型可以透過 Claude Code Router 回答文字，但不一定能可靠執行真實工具操作。Action executor 要求模型輸出嚴格 JSON action manifest，再由 rule-based runner 驗證與執行。
+`run_local_model_action_executor.py` 用來處理 local open-source model 在 live mode 常見的問題：模型會「說」它建立了檔案或執行了工具，但實際上沒有產生 side effect。
 
-這不是讓 Codex 或 wrapper 幫模型寫任務內容。模型仍負責決定要寫什麼檔案、跑什麼命令、交付什麼 artifact；runner 只負責安全執行與驗證。
+這個 executor 的設計是：
 
-## 支援 action
+- 開源模型只負責產生嚴格 JSON action manifest。
+- runner 只執行 allowlisted actions。
+- 所有檔案都限制在 run worktree 內。
+- 所有輸出都產生 dashboard/watchdog 可讀的 artifacts。
+- 不需要 PTT 或外部網站作為公司驗收條件。
+
+這不是讓 Codex 代替模型做判斷；模型仍然決定要寫什麼程式、讀什麼檔案、跑什麼命令。runner 只做邊界檢查、確定 side effect 真實發生、並產生可追蹤 artifacts。
+
+## Action Manifest
+
+模型必須回傳純 JSON，不要 markdown，不要解釋文字。
 
 ```json
 {
@@ -30,7 +40,7 @@
 }
 ```
 
-目前支援：
+允許的 action：
 
 - `write_file`
 - `read_file`
@@ -40,21 +50,21 @@
 ## 安全限制
 
 - 所有 path 必須是相對路徑。
-- 所有 path 必須留在 run worktree 內。
-- 不允許寫 dashboard source、repo scripts 或全域設定。
-- `run_command` 必須使用 allowlisted command。
-- 不接受任意 shell string。
-- action 數量有上限，避免無限 loop。
+- 所有 path 都不能離開 run worktree。
+- 不允許修改 dashboard source、repo scripts、全域設定或模型設定。
+- `run_command` 只能使用 allowlisted commands。
+- 不接受任意 shell script 字串。
+- action 數量與 repair 次數都有上限，避免無限 loop。
 
-## 執行方式
+## 使用方式
 
-直接呼叫模型產生 manifest：
+直接呼叫 local model 產生 manifest：
 
 ```bash
 python3 scripts/run_local_model_action_executor.py --task "Create a small probe file and verify it."
 ```
 
-用既有 manifest 測試 runner：
+使用既有 manifest 測 runner：
 
 ```bash
 python3 scripts/run_local_model_action_executor.py \
@@ -62,7 +72,23 @@ python3 scripts/run_local_model_action_executor.py \
   --manifest-file tmp/action_manifest.json
 ```
 
-輸出會寫到：
+公司/離線驗收建議使用本機 fixture，不使用 PTT 或外部網站：
+
+```bash
+python3 scripts/run_local_model_action_executor.py \
+  --task "Read data/input_records.json, write analyzer.py, run it, and produce output_summary.json with total_count, passed_count, failed_count, warning_count, and average_duration_sec." \
+  --seed-file tests/fixtures/local_action_executor_offline_case/input_records.json=data/input_records.json \
+  --expected-artifact analyzer.py \
+  --expected-artifact output_summary.json
+```
+
+`--seed-file SRC=DEST` 會把 repo 內的 fixture 複製到 run worktree，讓模型能處理固定輸入資料，不需要外網。
+
+`--expected-artifact` 會強制檢查指定檔案是否真的被產生。若模型只說完成但沒產生檔案，runner 會判定失敗，並在 repair budget 內重新要求模型產生修正版 manifest。
+
+## 輸出位置
+
+每次執行會建立：
 
 ```text
 results/ai_company_task_harness/<run-id>/
@@ -81,13 +107,35 @@ results/job-001.status.json
 results/job-001.action_log.json
 ```
 
-## 判斷標準
+重要 KPI：
 
-成功不看模型是否口頭說完成，而看：
+- `overall_status`
+- `artifact_pass_rate`
+- `actual_changed_count`
+- `attempt_count`
+- `repair_rounds_used`
+- `expected_artifact_count`
+- `missing_expected_artifact_count`
+- `seeded_file_count`
 
-- 目標檔案是否真的建立。
-- allowlisted command 是否真的執行且 exit code 為 0。
-- `finish.artifacts` 宣告的檔案是否存在。
-- dashboard-compatible artifacts 是否產生。
+## Live Mode 驗收建議
 
-如果模型輸出 invalid JSON、unsupported action、path traversal、未 allowlist command，runner 會 fail loudly，不會假成功。
+公司環境若要驗證 `Claude Code Router + qwen2.5-coder` 或其他開源模型，建議順序如下：
+
+1. 先確認 model endpoint 可用，例如 `/v1/models` 或 `/api/tags`。
+2. 再確認 CCR `/health`。
+3. 再確認 CCR `/v1/messages`。
+4. 最後跑 action executor 的離線 fixture case。
+
+通過條件不是模型文字說「完成」，而是：
+
+- `analyzer.py` 真實存在。
+- `output_summary.json` 真實存在。
+- `task_harness_report.json` 顯示 `overall_status=pass`。
+- `missing_expected_artifact_count=0`。
+
+## 失敗處理
+
+若模型輸出 invalid JSON、unsupported action、path traversal、非 allowlisted command、缺少 expected artifact，runner 會 fail loudly，並把錯誤寫入 artifacts。
+
+若啟用 repair rounds，runner 會把錯誤摘要、缺失 artifacts、失敗 command stdout/stderr 節錄回傳給模型，要求它產生更窄、更正確的 action manifest。repair 次數有上限，避免卡住。
