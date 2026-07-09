@@ -25,6 +25,36 @@ require_command() {
   fi
 }
 
+copy_dashboard_assets() {
+  local dest="${1:?destination required}"
+  mkdir -p "${dest}"
+  tar -C "${ASSET_DIR}" \
+    --exclude='./frontend/node_modules' \
+    --exclude='./frontend/dist' \
+    --exclude='./backend/.venv' \
+    --exclude='./logs' \
+    --exclude='./data' \
+    --exclude='./*.db' \
+    --exclude='./*.sqlite' \
+    -cf - . | tar -C "${dest}" -xf -
+
+  find "${dest}" \( \
+    -name node_modules -o \
+    -name .venv -o \
+    -name logs -o \
+    -name data -o \
+    -name dist -o \
+    -name __pycache__ \
+  \) -type d -prune -exec rm -rf {} +
+  find "${dest}" -name '*.pyc' -delete
+  chmod +x "${dest}/start-dashboard.sh" "${dest}/stop-dashboard.sh" "${dest}/smoke-dashboard.sh" 2>/dev/null || true
+}
+
+if [[ ! -d "${ASSET_DIR}" ]]; then
+  echo "Dashboard assets not found: ${ASSET_DIR}" >&2
+  exit 1
+fi
+
 require_command python3
 require_command node
 require_command npm
@@ -32,16 +62,7 @@ require_command npm
 PROJECT_ROOT="$(find_project_root)"
 DASHBOARD_DIR="${AI_COMPANY_DASHBOARD_DIR:-${PROJECT_ROOT}/agent_os_mvp}"
 
-if [[ ! -d "${ASSET_DIR}" ]]; then
-  echo "Dashboard assets not found: ${ASSET_DIR}" >&2
-  exit 1
-fi
-
-mkdir -p "${DASHBOARD_DIR}"
-cp -R "${ASSET_DIR}/." "${DASHBOARD_DIR}/"
-find "${DASHBOARD_DIR}" \( -name node_modules -o -name .venv -o -name logs -o -name data -o -name dist -o -name __pycache__ \) -type d -prune -exec rm -rf {} +
-find "${DASHBOARD_DIR}" -name '*.pyc' -delete
-chmod +x "${DASHBOARD_DIR}/start-dashboard.sh" "${DASHBOARD_DIR}/stop-dashboard.sh" "${DASHBOARD_DIR}/smoke-dashboard.sh" 2>/dev/null || true
+copy_dashboard_assets "${DASHBOARD_DIR}"
 
 cd "${DASHBOARD_DIR}/backend"
 python3 -m venv .venv
@@ -51,6 +72,11 @@ python3 -m venv .venv
 cd "${DASHBOARD_DIR}/frontend"
 npm install
 
-echo "Dashboard installed."
-echo "Dashboard dir: ${DASHBOARD_DIR}"
-echo "Start with: bash ${SKILL_DIR}/scripts/start_dashboard.sh"
+cat <<EOF
+Dashboard installed.
+Dashboard dir: ${DASHBOARD_DIR}
+Backend health: http://127.0.0.1:8010/health
+Frontend URL: http://127.0.0.1:5174
+Start with:
+  bash ${SKILL_DIR}/scripts/start_dashboard.sh
+EOF
