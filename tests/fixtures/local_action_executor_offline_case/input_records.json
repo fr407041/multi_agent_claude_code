@@ -1,0 +1,6 @@
+[
+  {"id": "A100", "status": "passed", "duration_sec": 12},
+  {"id": "A101", "status": "failed", "duration_sec": 31},
+  {"id": "A102", "status": "passed", "duration_sec": 18},
+  {"id": "A103", "status": "warning", "duration_sec": 24}
+]
