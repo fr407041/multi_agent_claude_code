@@ -14,7 +14,9 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.request
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,20 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_ROOT = ROOT / "results" / "ai_company_task_harness"
 ALLOWED_ACTIONS = {"write_file", "read_file", "run_command", "finish"}
 DEFAULT_ALLOWED_COMMANDS = {"python3", "python", "curl", "sed", "awk", "grep", "find", "mkdir", "cat", "head", "tail"}
+
+
+class ActionExecutionError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        action_log: list[dict[str, Any]] | None = None,
+        generated_files: list[str] | None = None,
+        final_summary: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.action_log = action_log or []
+        self.generated_files = generated_files or []
+        self.final_summary = final_summary
 
 
 def now_iso() -> str:
@@ -63,7 +79,7 @@ def ensure_within(root: Path, rel_path: str) -> Path:
     return target
 
 
-def call_ccr_for_manifest(task: str, timeout_sec: int) -> str:
+def call_ccr_for_manifest(task: str, timeout_sec: int, repair_feedback: str = "") -> str:
     url = os.environ.get("CCR_MESSAGES_URL", "http://127.0.0.1:3456/v1/messages")
     model = os.environ.get("CLAUDE_MODEL_ALIAS", "ollama,qwen2.5-coder:14b")
     api_key = os.environ.get("CCR_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "local-router-token"))
@@ -85,6 +101,13 @@ Rules:
 
 Task:
 {task}
+"""
+    if repair_feedback:
+        prompt += f"""
+
+Previous attempt failed. Produce a corrected full action manifest.
+Failure feedback:
+{repair_feedback}
 """
     payload = {"model": model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]}
     req = urllib.request.Request(
@@ -161,7 +184,12 @@ def execute_manifest(
             )
             if proc.returncode != 0:
                 action_log.append(entry)
-                raise ValueError(f"command failed with exit code {proc.returncode}: {' '.join(command)}")
+                raise ActionExecutionError(
+                    f"command failed with exit code {proc.returncode}: {' '.join(command)}",
+                    action_log,
+                    generated_files,
+                    final_summary,
+                )
         elif action_type == "finish":
             final_summary = str(action.get("summary") or "")
             artifacts = action.get("artifacts") or []
@@ -170,11 +198,82 @@ def execute_manifest(
             for rel in artifacts:
                 target = ensure_within(worktree, str(rel))
                 if not target.exists():
-                    raise ValueError(f"declared artifact missing: {rel}")
+                    raise ActionExecutionError(
+                        f"declared artifact missing: {rel}",
+                        action_log,
+                        generated_files,
+                        final_summary,
+                    )
             entry.update({"summary": final_summary, "artifacts": artifacts, "status": "ok"})
         entry["finished_at"] = now_iso()
         action_log.append(entry)
     return action_log, sorted(set(generated_files)), final_summary
+
+
+def validate_expected_artifacts(run_dir: Path, expected_artifacts: list[str]) -> list[str]:
+    worktree = run_dir / "worktree"
+    missing = []
+    for rel in expected_artifacts:
+        try:
+            target = ensure_within(worktree, rel)
+        except ValueError:
+            missing.append(rel)
+            continue
+        if not target.exists() or not target.is_file():
+            missing.append(rel)
+    return missing
+
+
+def build_repair_feedback(
+    error: str,
+    action_log: list[dict[str, Any]],
+    generated_files: list[str],
+    expected_artifacts: list[str],
+    missing_expected: list[str],
+) -> str:
+    failed_actions = [item for item in action_log if item.get("status") == "failed"]
+    excerpts = []
+    for item in failed_actions[-2:]:
+        excerpts.append(
+            json.dumps(
+                {
+                    "type": item.get("type"),
+                    "command": item.get("command"),
+                    "return_code": item.get("return_code"),
+                    "stdout": item.get("stdout", "")[-1200:],
+                    "stderr": item.get("stderr", "")[-1200:],
+                },
+                ensure_ascii=False,
+            )
+        )
+    return "\n".join(
+        [
+            f"error: {error}",
+            f"generated_files: {generated_files}",
+            f"expected_artifacts: {expected_artifacts}",
+            f"missing_expected_artifacts: {missing_expected}",
+            "failed_action_excerpts:",
+            *excerpts,
+        ]
+    )[-6000:]
+
+
+def seed_worktree(run_dir: Path, seed_specs: list[str]) -> list[str]:
+    worktree = run_dir / "worktree"
+    worktree.mkdir(parents=True, exist_ok=True)
+    seeded = []
+    for spec in seed_specs:
+        src_text, sep, dest_text = spec.partition("=")
+        if not sep:
+            raise ValueError(f"seed-file must use SRC=DEST format: {spec}")
+        src = Path(src_text).resolve()
+        if not src.exists() or not src.is_file():
+            raise ValueError(f"seed source file missing: {src}")
+        dest = ensure_within(worktree, dest_text)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        seeded.append(str(dest.relative_to(worktree).as_posix()))
+    return seeded
 
 
 def build_artifacts(
@@ -186,6 +285,11 @@ def build_artifacts(
     generated_files: list[str],
     final_summary: str,
     error: str,
+    attempt_count: int = 1,
+    repair_rounds_used: int = 0,
+    expected_artifacts: list[str] | None = None,
+    missing_expected_artifacts: list[str] | None = None,
+    seeded_files: list[str] | None = None,
 ) -> dict[str, Any]:
     ai_dir = run_dir / "ai_company"
     results_dir = run_dir / "results"
@@ -248,7 +352,22 @@ def build_artifacts(
     }
     write_json(ai_dir / "subagent_claim_ledger.json", claim_ledger)
     write_json(ai_dir / "reviewer_verdicts.json", reviewer)
-    artifact = {"parsed": {"all_passed": status == "SUCCESS", "score": 1.0 if status == "SUCCESS" else 0.0, "checks": {"generated_file_exists": bool(generated_files), "executor_success": status == "SUCCESS"}}}
+    expected_artifacts = expected_artifacts or []
+    missing_expected_artifacts = missing_expected_artifacts or []
+    seeded_files = seeded_files or []
+    artifact = {
+        "parsed": {
+            "all_passed": status == "SUCCESS",
+            "score": 1.0 if status == "SUCCESS" else 0.0,
+            "checks": {
+                "generated_file_exists": bool(generated_files),
+                "executor_success": status == "SUCCESS",
+                "expected_artifacts_present": not missing_expected_artifacts,
+            },
+            "expected_artifacts": expected_artifacts,
+            "missing_expected_artifacts": missing_expected_artifacts,
+        }
+    }
     write_json(ai_dir / "artifact_verify_report.json", artifact)
     write_json(ai_dir / "watchdog_report.json", {"watchdog_status": "healthy" if status == "SUCCESS" else "escalated", "last_action": "action-executor-complete" if status == "SUCCESS" else "WATCHDOG_ESCALATION_REQUIRED"})
     report = {
@@ -265,6 +384,11 @@ def build_artifacts(
             "artifact_pass_rate": 1.0 if status == "SUCCESS" else 0.0,
             "actual_changed_count": len(generated_files),
             "unsupported_action_count": 0,
+            "attempt_count": attempt_count,
+            "repair_rounds_used": repair_rounds_used,
+            "expected_artifact_count": len(expected_artifacts),
+            "missing_expected_artifact_count": len(missing_expected_artifacts),
+            "seeded_file_count": len(seeded_files),
         },
         "overall_status": "pass" if status == "SUCCESS" else "fail",
     }
@@ -282,6 +406,9 @@ def main() -> int:
     parser.add_argument("--max-actions", type=int, default=int(os.environ.get("LOCAL_ACTION_MAX_ACTIONS", "8")))
     parser.add_argument("--timeout-sec", type=int, default=int(os.environ.get("LOCAL_ACTION_MODEL_TIMEOUT_SEC", "180")))
     parser.add_argument("--allowed-commands", default=os.environ.get("LOCAL_ACTION_ALLOWED_COMMANDS", ",".join(sorted(DEFAULT_ALLOWED_COMMANDS))))
+    parser.add_argument("--expected-artifact", action="append", default=[])
+    parser.add_argument("--seed-file", action="append", default=[])
+    parser.add_argument("--max-repair-rounds", type=int, default=int(os.environ.get("LOCAL_ACTION_MAX_REPAIR_ROUNDS", "3")))
     args = parser.parse_args()
 
     task = args.task or (read_text(Path(args.task_file)) if args.task_file else "")
@@ -293,22 +420,68 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "task.txt").write_text(task, encoding="utf-8")
     allowed_commands = {item.strip() for item in args.allowed_commands.split(",") if item.strip()}
+    seeded_files = seed_worktree(run_dir, args.seed_file)
 
     action_log: list[dict[str, Any]] = []
     generated_files: list[str] = []
     final_summary = ""
     error = ""
-    try:
-        raw_manifest = read_text(Path(args.manifest_file)) if args.manifest_file else call_ccr_for_manifest(task, args.timeout_sec)
-        (run_dir / "results" / "job-001.manifest.raw.txt").parent.mkdir(parents=True, exist_ok=True)
-        (run_dir / "results" / "job-001.manifest.raw.txt").write_text(raw_manifest, encoding="utf-8")
-        manifest = parse_json_payload(raw_manifest)
-        action_log, generated_files, final_summary = execute_manifest(manifest, run_dir, allowed_commands, args.max_actions)
-        status = "SUCCESS"
-    except Exception as exc:  # noqa: BLE001
-        status = "FAILED"
-        error = str(exc)
-    report = build_artifacts(run_dir, run_id, task, status, action_log, generated_files, final_summary, error)
+    missing_expected_artifacts: list[str] = []
+    status = "FAILED"
+    repair_feedback = ""
+    max_attempts = 1 if args.manifest_file else max(1, args.max_repair_rounds + 1)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            raw_manifest = read_text(Path(args.manifest_file)) if args.manifest_file else call_ccr_for_manifest(task, args.timeout_sec, repair_feedback)
+            manifest_path = run_dir / "results" / f"job-001.manifest.round-{attempt}.raw.txt"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(raw_manifest, encoding="utf-8")
+            if attempt == 1:
+                (run_dir / "results" / "job-001.manifest.raw.txt").write_text(raw_manifest, encoding="utf-8")
+            manifest = parse_json_payload(raw_manifest)
+            round_log, round_generated, final_summary = execute_manifest(manifest, run_dir, allowed_commands, args.max_actions)
+            action_log.extend(round_log)
+            generated_files = sorted(set([*generated_files, *round_generated]))
+            missing_expected_artifacts = validate_expected_artifacts(run_dir, args.expected_artifact)
+            if missing_expected_artifacts:
+                raise ActionExecutionError(
+                    f"missing expected artifacts: {', '.join(missing_expected_artifacts)}",
+                    action_log,
+                    generated_files,
+                    final_summary,
+                )
+            generated_files = sorted(set([*generated_files, *args.expected_artifact]))
+            status = "SUCCESS"
+            error = ""
+            break
+        except ActionExecutionError as exc:
+            if exc.action_log:
+                if len(exc.action_log) >= len(action_log):
+                    action_log = exc.action_log
+                else:
+                    action_log.extend(exc.action_log)
+            generated_files = sorted(set([*generated_files, *exc.generated_files]))
+            final_summary = exc.final_summary or final_summary
+            error = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+        missing_expected_artifacts = validate_expected_artifacts(run_dir, args.expected_artifact)
+        repair_feedback = build_repair_feedback(error, action_log, generated_files, args.expected_artifact, missing_expected_artifacts)
+    report = build_artifacts(
+        run_dir,
+        run_id,
+        task,
+        status,
+        action_log,
+        generated_files,
+        final_summary,
+        error,
+        attempt_count=attempt,
+        repair_rounds_used=max(0, attempt - 1),
+        expected_artifacts=args.expected_artifact,
+        missing_expected_artifacts=missing_expected_artifacts,
+        seeded_files=seeded_files,
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if status == "SUCCESS" else 1
 
