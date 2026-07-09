@@ -11,10 +11,11 @@ CCR_HEALTH_URL="${CCR_HEALTH_URL:-http://127.0.0.1:3456/health}"
 CCR_MESSAGES_URL="${CCR_MESSAGES_URL:-${CCR_BASE_URL%/}/v1/messages}"
 
 export AI_COMPANY_WORKER_SCRIPTS_DIR="${ROOT_DIR}/scripts"
-export CLAUDE_MODEL_ALIAS="${CLAUDE_MODEL_ALIAS:-sonnet}"
+export CLAUDE_MODEL_ALIAS="${CLAUDE_MODEL_ALIAS:-ollama,qwen2.5-coder:3b}"
 export CLAUDE_TOOLS_VALUE="${CLAUDE_TOOLS_VALUE-}"
 export CCR_PREFERRED_MODEL="${CCR_PREFERRED_MODEL:-qwen2.5-coder:3b}"
 export CCR_MAX_OUTPUT_TOKENS="${CCR_MAX_OUTPUT_TOKENS:-1024}"
+export CCR_API_KEY="${CCR_API_KEY:-local-router-token}"
 export CCR_MESSAGES_URL
 
 require_command() {
@@ -33,13 +34,27 @@ probe_url() {
 probe_ccr_messages() {
   python3 - "$CCR_MESSAGES_URL" "$CLAUDE_MODEL_ALIAS" "${CCR_MAX_OUTPUT_TOKENS}" <<'PY'
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 
 url, model, max_tokens = sys.argv[1], sys.argv[2], int(sys.argv[3])
-payload = {"model": model, "max_tokens": min(max_tokens, 64), "messages": [{"role": "user", "content": "Reply with exactly: ok"}]}
-req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": "Bearer dummy"}, method="POST")
+payload = {
+    "model": model,
+    "max_tokens": min(max_tokens, 64),
+    "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+}
+req = urllib.request.Request(
+    url,
+    data=json.dumps(payload).encode("utf-8"),
+    headers={
+        "Content-Type": "application/json",
+        "x-api-key": os.environ.get("CCR_API_KEY", "local-router-token"),
+        "anthropic-version": "2023-06-01",
+    },
+    method="POST",
+)
 try:
     with urllib.request.urlopen(req, timeout=30) as resp:
         body = resp.read().decode("utf-8", errors="ignore")
@@ -97,5 +112,10 @@ if ! probe_url "${CCR_HEALTH_URL}"; then
 fi
 
 probe_ccr_messages
+
+if [[ "${LIVE_SIDE_EFFECT_SMOKE:-1}" != "0" ]]; then
+  python3 "${ROOT_DIR}/scripts/smoke_live_tool_side_effect.py"
+fi
+
 cd "${ROOT_DIR}"
 python3 "${ROOT_DIR}/scripts/run_ai_company_live_router.py" "${SPEC_PATH}"
