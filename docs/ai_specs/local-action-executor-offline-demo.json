@@ -1,0 +1,22 @@
+{
+  "id": "local-action-executor-offline-demo",
+  "task_type": "local_action_executor",
+  "goal": "Verify that an open-source local model can generate code, run it through the deterministic action executor, and produce dashboard-compatible artifacts without external network access.",
+  "seed_files": [
+    {
+      "source": "tests/fixtures/local_action_executor_offline_case/input_records.json",
+      "target": "data/input_records.json"
+    }
+  ],
+  "expected_artifacts": [
+    "analyzer.py",
+    "output_summary.json"
+  ],
+  "success_criteria": [
+    "The model writes analyzer.py inside the run worktree.",
+    "The runner executes analyzer.py with an allowlisted Python command.",
+    "output_summary.json is created.",
+    "task_harness_report.json reports overall_status=pass.",
+    "No external website or PTT access is required."
+  ]
+}
