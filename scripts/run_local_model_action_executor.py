@@ -322,6 +322,82 @@ def validate_json_expectations(run_dir: Path, expectation_specs: list[str]) -> l
     return results
 
 
+def value_type_name(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
+
+
+def infer_json_fields(value: Any, prefix: str = "") -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        for key in sorted(value):
+            path = f"{prefix}.{key}" if prefix else str(key)
+            child = value[key]
+            fields.append({"path": path, "type": value_type_name(child), "example": child if not isinstance(child, (dict, list)) else None})
+            fields.extend(infer_json_fields(child, path))
+    elif isinstance(value, list):
+        merged_keys: dict[str, Any] = {}
+        scalar_types = sorted({value_type_name(item) for item in value[:20]})
+        for item in value[:20]:
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    merged_keys.setdefault(key, child)
+        fields.append({"path": prefix or "$", "type": "array", "item_types": scalar_types, "sample_count": min(len(value), 20)})
+        for key in sorted(merged_keys):
+            path = f"{prefix}.[].{key}" if prefix else f"[].{key}"
+            child = merged_keys[key]
+            fields.append({"path": path, "type": value_type_name(child), "example": child if not isinstance(child, (dict, list)) else None})
+            fields.extend(infer_json_fields(child, path))
+    return fields
+
+
+def build_schema_context(run_dir: Path, seeded_files: list[str], schema_files: list[str]) -> dict[str, Any]:
+    worktree = run_dir / "worktree"
+    sources: list[dict[str, Any]] = []
+    for rel in seeded_files:
+        target = ensure_within(worktree, rel)
+        if target.suffix.lower() != ".json" or not target.exists():
+            continue
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            sources.append({"source": rel, "kind": "seed_file", "fields": infer_json_fields(payload)[:80]})
+        except Exception as exc:  # noqa: BLE001 - schema hints are best-effort diagnostics.
+            sources.append({"source": rel, "kind": "seed_file", "error": str(exc)})
+    for schema_file in schema_files:
+        target = Path(schema_file).resolve()
+        if not target.exists() or not target.is_file():
+            sources.append({"source": schema_file, "kind": "schema_file", "error": "schema_file_missing"})
+            continue
+        try:
+            text = target.read_text(encoding="utf-8", errors="ignore")
+            source: dict[str, Any] = {"source": str(target), "kind": "schema_file", "excerpt": text[:2000]}
+            if target.suffix.lower() == ".json":
+                source["fields"] = infer_json_fields(json.loads(text))[:80]
+            sources.append(source)
+        except Exception as exc:  # noqa: BLE001
+            sources.append({"source": str(target), "kind": "schema_file", "error": str(exc)})
+    usable = [source for source in sources if source.get("fields") or source.get("excerpt")]
+    return {
+        "schema_context_available": bool(usable),
+        "source_count": len(sources),
+        "usable_source_count": len(usable),
+        "sources": sources,
+    }
+
+
 def build_repair_feedback(
     error: str,
     action_log: list[dict[str, Any]],
@@ -329,6 +405,7 @@ def build_repair_feedback(
     expected_artifacts: list[str],
     missing_expected: list[str],
     semantic_results: list[dict[str, Any]] | None = None,
+    schema_context: dict[str, Any] | None = None,
 ) -> str:
     failed_actions = [item for item in action_log if item.get("status") == "failed"]
     excerpts = []
@@ -345,6 +422,7 @@ def build_repair_feedback(
                 ensure_ascii=False,
             )
         )
+    schema_context = schema_context or {"schema_context_available": False, "sources": []}
     return "\n".join(
         [
             f"error: {error}",
@@ -352,6 +430,9 @@ def build_repair_feedback(
             f"expected_artifacts: {expected_artifacts}",
             f"missing_expected_artifacts: {missing_expected}",
             f"semantic_expectation_failures: {[item for item in (semantic_results or []) if item.get('status') == 'failed']}",
+            "schema_context_for_repair:",
+            json.dumps(schema_context, ensure_ascii=False)[:3000],
+            "repair_instruction: Use the schema context above when semantic checks fail. Do not invent field names; read the seeded input fields exactly.",
             "failed_action_excerpts:",
             *excerpts,
         ]
@@ -391,6 +472,7 @@ def build_artifacts(
     missing_expected_artifacts: list[str] | None = None,
     seeded_files: list[str] | None = None,
     semantic_results: list[dict[str, Any]] | None = None,
+    schema_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ai_dir = run_dir / "ai_company"
     results_dir = run_dir / "results"
@@ -457,6 +539,7 @@ def build_artifacts(
     missing_expected_artifacts = missing_expected_artifacts or []
     seeded_files = seeded_files or []
     semantic_results = semantic_results or []
+    schema_context = schema_context or {"schema_context_available": False, "sources": []}
     semantic_failed = [item for item in semantic_results if item.get("status") == "failed"]
     artifact = {
         "parsed": {
@@ -472,9 +555,11 @@ def build_artifacts(
             "missing_expected_artifacts": missing_expected_artifacts,
             "semantic_expectations": semantic_results,
             "semantic_expectations_passed": not semantic_failed,
+            "schema_context": schema_context,
         }
     }
     write_json(ai_dir / "artifact_verify_report.json", artifact)
+    write_json(ai_dir / "schema_context.json", schema_context)
     write_json(ai_dir / "watchdog_report.json", {"watchdog_status": "healthy" if status == "SUCCESS" else "escalated", "last_action": "action-executor-complete" if status == "SUCCESS" else "WATCHDOG_ESCALATION_REQUIRED"})
     report = {
         "spec_id": "local-model-action-executor",
@@ -498,6 +583,8 @@ def build_artifacts(
             "semantic_expectation_count": len(semantic_results),
             "semantic_expectation_passed_count": len(semantic_results) - len(semantic_failed),
             "semantic_expectation_failed_count": len(semantic_failed),
+            "schema_context_available": schema_context.get("schema_context_available", False),
+            "schema_context_source_count": schema_context.get("source_count", 0),
         },
         "overall_status": "pass" if status == "SUCCESS" else "fail",
     }
@@ -518,6 +605,7 @@ def main() -> int:
     parser.add_argument("--expected-artifact", action="append", default=[])
     parser.add_argument("--expect-json-value", action="append", default=[])
     parser.add_argument("--seed-file", action="append", default=[])
+    parser.add_argument("--schema-file", action="append", default=[])
     parser.add_argument("--max-repair-rounds", type=int, default=int(os.environ.get("LOCAL_ACTION_MAX_REPAIR_ROUNDS", "3")))
     args = parser.parse_args()
 
@@ -531,6 +619,7 @@ def main() -> int:
     (run_dir / "task.txt").write_text(task, encoding="utf-8")
     allowed_commands = {item.strip() for item in args.allowed_commands.split(",") if item.strip()}
     seeded_files = seed_worktree(run_dir, args.seed_file)
+    schema_context = build_schema_context(run_dir, seeded_files, args.schema_file)
 
     action_log: list[dict[str, Any]] = []
     generated_files: list[str] = []
@@ -594,6 +683,7 @@ def main() -> int:
             args.expected_artifact,
             missing_expected_artifacts,
             semantic_results,
+            schema_context,
         )
     report = build_artifacts(
         run_dir,
@@ -610,6 +700,7 @@ def main() -> int:
         missing_expected_artifacts=missing_expected_artifacts,
         seeded_files=seeded_files,
         semantic_results=semantic_results,
+        schema_context=schema_context,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if status == "SUCCESS" else 1
