@@ -39,10 +39,24 @@ def changed_files(before: dict[str, dict[str, Any]], after: dict[str, dict[str, 
 
 def call_ccr(prompt: str, timeout: int) -> tuple[int, str]:
     url = os.environ.get("CCR_MESSAGES_URL", "http://127.0.0.1:3456/v1/messages")
-    model = os.environ.get("CLAUDE_MODEL_ALIAS", "sonnet")
+    model = os.environ.get("CLAUDE_MODEL_ALIAS", "ollama,qwen2.5-coder:3b")
+    api_key = os.environ.get("CCR_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "local-router-token"))
     max_tokens = int(os.environ.get("CCR_MAX_OUTPUT_TOKENS", "1024"))
-    payload = {"model": model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]}
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": "Bearer dummy"}, method="POST")
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode("utf-8", errors="ignore")
@@ -70,7 +84,7 @@ def call_ccr(prompt: str, timeout: int) -> tuple[int, str]:
 
 def status_from_raw(raw: str, exit_code: int) -> str:
     lowered = raw.lower()
-    match = re.search(r"(?im)^STATUS:\s*(SUCCESS|NEEDS_REPLAN|OVERFLOW_DETECTED|ROUTER_ERROR|CHILD_LIMIT_REACHED|CHILD_TIMEOUT|FAILED)\b", raw)
+    match = re.search(r"(?im)^STATUS:\s*(SUCCESS|NEEDS_REPLAN|OVERFLOW_DETECTED|ROUTER_ERROR|CHILD_LIMIT_REACHED|CHILD_TIMEOUT|PSEUDO_TOOL_CALL_DETECTED|FAILED)\b", raw)
     if match:
         return match.group(1)
     if exit_code == 124:
@@ -80,6 +94,37 @@ def status_from_raw(raw: str, exit_code: int) -> str:
     if exit_code != 0 or not raw.strip():
         return "ROUTER_ERROR"
     return "SUCCESS"
+
+
+def looks_like_pseudo_tool_call(raw: str) -> bool:
+    text = raw.strip()
+    if not text:
+        return False
+    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", text, flags=re.S | re.I)
+    if fenced:
+        text = fenced.group(1).strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        lowered = text.lower()
+        return bool(
+            re.search(r'"\s*(name|tool|tool_name)\s*"\s*:\s*"\s*(write|edit|create|bash|shell)', lowered)
+            or "tool_calls" in lowered
+            or ("file_path" in lowered and "arguments" in lowered and not re.search(r"(?im)^STATUS:\s*SUCCESS\b", text))
+        )
+    candidates = payload if isinstance(payload, list) else [payload]
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        if "tool_calls" in item:
+            return True
+        name = str(item.get("name") or item.get("tool") or item.get("tool_name") or "").lower()
+        arguments = item.get("arguments")
+        if name in {"write", "edit", "create", "bash", "shell"} and isinstance(arguments, dict):
+            return True
+        if "file_path" in item and ("content" in item or "arguments" in item):
+            return True
+    return False
 
 
 def extract_summary_content(raw: str) -> str:
@@ -156,7 +201,8 @@ def main() -> int:
     files = [str(item) for item in job.get("files", [])]
     before = file_state(scope, files)
     start = time.time()
-    exit_code, raw = call_ccr(build_prompt(job, worker_kind, scope), int(os.environ.get("CLAUDE_CHILD_TIMEOUT_SEC", "120")))
+    prompt = build_prompt(job, worker_kind, scope)
+    exit_code, raw = call_ccr(prompt, int(os.environ.get("CLAUDE_CHILD_TIMEOUT_SEC", "120")))
     raw_file.write_text(raw, encoding="utf-8")
     exec_log_file.write_text(raw, encoding="utf-8")
     status = status_from_raw(raw, exit_code)
@@ -166,6 +212,7 @@ def main() -> int:
         target.write_text(extract_summary_content(raw), encoding="utf-8")
     after = file_state(scope, files)
     actual_changed_files = changed_files(before, after)
+    pseudo_tool_call_detected = looks_like_pseudo_tool_call(raw)
     test_command = str(job.get("test_command") or "")
     test_exit_code = 0
     if test_command:
@@ -174,6 +221,8 @@ def main() -> int:
         test_output_file.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
     else:
         test_output_file.write_text("not-run\n", encoding="utf-8")
+    if status == "SUCCESS" and pseudo_tool_call_detected:
+        status = "PSEUDO_TOOL_CALL_DETECTED"
     if status == "SUCCESS" and bool(job.get("require_change")) and not actual_changed_files:
         status = "FAILED"
     if status == "SUCCESS" and test_command and test_exit_code != 0:
@@ -187,8 +236,50 @@ def main() -> int:
         verification_note = "child worker reported context/output pressure"
     elif status == "FAILED":
         verification_note = "worker output did not satisfy change/test contract"
-    payload = {"id": job_id, "status": status, "scope_path": str(scope), "require_change": bool(job.get("require_change")), "files": files, "owner_role": job.get("owner_role", ""), "actual_changed_files": actual_changed_files, "actual_changed_count": len(actual_changed_files), "verification_note": verification_note, "raw_file": str(raw_file), "exec_log_file": str(exec_log_file), "success_check": job.get("success_check", ""), "test_command": test_command, "test_executed_command": test_command, "test_output_file": str(test_output_file), "test_exit_code": test_exit_code, "exit_code": exit_code, "duration_sec": round(time.time() - start, 3), "key_claims": [{"claim": verification_note if status != "SUCCESS" else "Worker result is bounded to assigned files and CCR output.", "evidence_refs": [str(raw_file), *[str(scope / rel) for rel in files]]}], "confidence": "medium" if status == "SUCCESS" else "low", "limitations": ["Live worker quality depends on configured CCR model and endpoint."], "handoff_next": "Review status, raw output, and claim ledger before accepting."}
-    for key in ["agent_profile", "profile_mode", "effective_policy_level", "effective_allowed_skills", "effective_allowed_mcp_groups", "effective_tool_policy", "profile_settings_overlay", "profile_scope_limits", "profile_recovery_policy"]:
+    elif status == "PSEUDO_TOOL_CALL_DETECTED":
+        verification_note = "model returned a pseudo tool call, but no executable side effect was verified"
+    payload = {
+        "id": job_id,
+        "status": status,
+        "scope_path": str(scope),
+        "require_change": bool(job.get("require_change")),
+        "files": files,
+        "owner_role": job.get("owner_role", ""),
+        "actual_changed_files": actual_changed_files,
+        "actual_changed_count": len(actual_changed_files),
+        "pseudo_tool_call_detected": pseudo_tool_call_detected,
+        "failure_family": "pseudo_tool_call" if status == "PSEUDO_TOOL_CALL_DETECTED" else "",
+        "verification_note": verification_note,
+        "raw_file": str(raw_file),
+        "exec_log_file": str(exec_log_file),
+        "success_check": job.get("success_check", ""),
+        "test_command": test_command,
+        "test_executed_command": test_command,
+        "test_output_file": str(test_output_file),
+        "test_exit_code": test_exit_code,
+        "exit_code": exit_code,
+        "duration_sec": round(time.time() - start, 3),
+        "key_claims": [
+            {
+                "claim": verification_note if status != "SUCCESS" else "Worker result is bounded to assigned files and CCR output.",
+                "evidence_refs": [str(raw_file), *[str(scope / rel) for rel in files]],
+            }
+        ],
+        "confidence": "medium" if status == "SUCCESS" else "low",
+        "limitations": ["Live worker quality depends on configured CCR model and endpoint."],
+        "handoff_next": "Review status, raw output, and claim ledger before accepting.",
+    }
+    for key in [
+        "agent_profile",
+        "profile_mode",
+        "effective_policy_level",
+        "effective_allowed_skills",
+        "effective_allowed_mcp_groups",
+        "effective_tool_policy",
+        "profile_settings_overlay",
+        "profile_scope_limits",
+        "profile_recovery_policy",
+    ]:
         if key in job:
             payload[key] = job[key]
     write_json(status_file, payload)
