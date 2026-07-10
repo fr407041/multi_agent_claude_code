@@ -11,9 +11,13 @@ CCR_HEALTH_URL="${CCR_HEALTH_URL:-http://127.0.0.1:3456/health}"
 CCR_MESSAGES_URL="${CCR_MESSAGES_URL:-${CCR_BASE_URL%/}/v1/messages}"
 
 export AI_COMPANY_WORKER_SCRIPTS_DIR="${ROOT_DIR}/scripts"
-export CLAUDE_MODEL_ALIAS="${CLAUDE_MODEL_ALIAS:-ollama,qwen2.5-coder:3b}"
+if [[ -z "${CLAUDE_MODEL_ALIAS:-}" && -z "${CCR_PREFERRED_MODEL:-}" ]]; then
+  echo "Live mode requires CLAUDE_MODEL_ALIAS or CCR_PREFERRED_MODEL. Set it to your provider-selected model alias." >&2
+  exit 2
+fi
+export CLAUDE_MODEL_ALIAS="${CLAUDE_MODEL_ALIAS:-${CCR_PREFERRED_MODEL}}"
 export CLAUDE_TOOLS_VALUE="${CLAUDE_TOOLS_VALUE-}"
-export CCR_PREFERRED_MODEL="${CCR_PREFERRED_MODEL:-qwen2.5-coder:3b}"
+export CCR_PREFERRED_MODEL="${CCR_PREFERRED_MODEL:-${CLAUDE_MODEL_ALIAS}}"
 export CCR_MAX_OUTPUT_TOKENS="${CCR_MAX_OUTPUT_TOKENS:-1024}"
 export CCR_API_KEY="${CCR_API_KEY:-local-router-token}"
 export CCR_MESSAGES_URL
@@ -34,7 +38,6 @@ probe_url() {
 probe_ccr_messages() {
   python3 - "$CCR_MESSAGES_URL" "$CLAUDE_MODEL_ALIAS" "${CCR_MAX_OUTPUT_TOKENS}" <<'PY'
 import json
-import os
 import sys
 import urllib.error
 import urllib.request
@@ -48,11 +51,7 @@ payload = {
 req = urllib.request.Request(
     url,
     data=json.dumps(payload).encode("utf-8"),
-    headers={
-        "Content-Type": "application/json",
-        "x-api-key": os.environ.get("CCR_API_KEY", "local-router-token"),
-        "anthropic-version": "2023-06-01",
-    },
+    headers={"Content-Type": "application/json", "x-api-key": __import__("os").environ.get("CCR_API_KEY", "local-router-token"), "anthropic-version": "2023-06-01"},
     method="POST",
 )
 try:
