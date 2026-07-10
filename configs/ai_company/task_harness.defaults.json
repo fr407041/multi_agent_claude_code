@@ -1,11 +1,33 @@
 {
   "meeting_round_limit": 3,
   "max_reassignments_per_run": 1,
+  "max_scope_files": 3,
+  "child_timeout_sec": 180,
+  "call_timeout_sec": 240,
+  "claude_model_alias": "sonnet",
+  "claude_tools_value": "",
+  "agent_profile_mode": "auto",
+  "agent_profile_registry": "configs/ai_company/agent_profiles.json",
+  "agent_profile_enforcement_runtime": "claude-code-2.1.42-compatible",
+  "live_model": "",
+  "meeting_mode": "deterministic",
+  "router_max_output_tokens": 1024,
   "main_agent_memory_guard_enabled": true,
   "main_agent_memory_token_threshold": 24000,
   "main_agent_memory_hard_threshold": 32000,
+  "main_agent_memory_excerpt_chars": 1200,
+  "main_agent_memory_checkpoint_max_chars": 8000,
+  "main_agent_memory_checkpoint_dir": "ai_company",
   "watchdog_enabled": true,
   "watchdog_interval_sec": 30,
   "watchdog_stale_after_sec": 180,
-  "watchdog_max_total_actions_per_run": 3
+  "watchdog_max_repair_attempts_per_task": 1,
+  "watchdog_max_total_actions_per_run": 3,
+  "watchdog_require_final_artifact_verify": true,
+  "kpi_targets": {
+    "meeting_ready_required": true,
+    "bounded_scope_rate": 1.0,
+    "status_file_coverage_rate": 1.0,
+    "loop_bounded_required": true
+  }
 }
