@@ -81,7 +81,9 @@ def ensure_within(root: Path, rel_path: str) -> Path:
 
 def call_ccr_for_manifest(task: str, timeout_sec: int, repair_feedback: str = "") -> str:
     url = os.environ.get("CCR_MESSAGES_URL", "http://127.0.0.1:3456/v1/messages")
-    model = os.environ.get("CLAUDE_MODEL_ALIAS", "ollama,qwen2.5-coder:14b")
+    model = os.environ.get("CLAUDE_MODEL_ALIAS") or os.environ.get("CCR_PREFERRED_MODEL")
+    if not model:
+        raise RuntimeError("CLAUDE_MODEL_ALIAS or CCR_PREFERRED_MODEL is required for live local-model execution")
     api_key = os.environ.get("CCR_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "local-router-token"))
     max_tokens = int(os.environ.get("CCR_MAX_OUTPUT_TOKENS", "2048"))
     prompt = f"""Return only strict JSON. No markdown. No explanation.
