@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 
 PACKAGE_SCHEMA_VERSION = 1
-RELEASE_ID = "2026.07.11-company.7"
+RELEASE_ID = "2026.07.11-company.8"
 MANIFEST_PATH = Path("release") / "ai_company_package_manifest.json"
 
 CANONICAL_ROLES = [
@@ -37,6 +37,7 @@ RUNTIME_REQUIRED_PATHS = [
     "scripts/agent_profile_resolver.py",
     "scripts/agent_token_ledger.py",
     "scripts/bounded_context_loader.py",
+    "scripts/run_local_model_action_executor.py",
     "scripts/prepare_common_research_case.py",
     "scripts/verify_common_research_artifact.py",
     "scripts/verify_sens_summary_artifact.py",

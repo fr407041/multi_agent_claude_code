@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
 from app.routers.api import router as api_router
+from app.services.ai_company_monitor import get_results_root
 
 
 @asynccontextmanager
@@ -49,5 +50,5 @@ def checkout_marker():
         "app_version": app.version,
         "app_root": str(dashboard_root),
         "project_root": str(project_root),
-        "result_root": str(project_root / "results" / "ai_company_task_harness"),
+        "result_root": str(get_results_root()),
     }

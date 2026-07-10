@@ -358,6 +358,7 @@ export default function App() {
   const run = hasExplicitSelection ? selectedRun : monitor.latest_run;
   const selectedRunSummary = hasExplicitSelection ? selectedRun?.selected_run_summary || null : monitor.selected_run_preview;
   const allRunsSummary = monitor.all_runs_summary || emptyMonitor.all_runs_summary;
+  const overview = monitor.overview || emptyMonitor.overview;
   const finalResult = run?.final_result || {};
   const alerts = run?.alerts || [];
   const board = run?.agent_state_board || {};
@@ -534,7 +535,7 @@ export default function App() {
 
       <section className="health-grid">
         <article className="surface run-health">
-          <SectionHeader title="Run health" status={run?.overall_status || monitor.overview.latest_status} />
+          <SectionHeader title="Run health" status={run?.overall_status || overview.latest_status} />
           {run ? (
             <>
               <p className="decision-text">{run.decision_summary || "No decision summary has been recorded yet."}</p>

@@ -23,7 +23,9 @@ nohup .venv/bin/python -m uvicorn app.main:app --host "$BACKEND_HOST" --port "$B
 echo $! > "$LOG_DIR/backend.pid"
 
 cd "$FRONTEND_DIR"
-nohup env VITE_API_BASE_URL="http://127.0.0.1:${BACKEND_PORT}" npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" \
+VITE_API_BASE_URL="http://127.0.0.1:${BACKEND_PORT}" npm run build \
+  >"$LOG_DIR/frontend-build-${FRONTEND_PORT}.out.log" 2>"$LOG_DIR/frontend-build-${FRONTEND_PORT}.err.log"
+nohup npm run preview -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" --strictPort \
   >"$LOG_DIR/frontend-${FRONTEND_PORT}.out.log" 2>"$LOG_DIR/frontend-${FRONTEND_PORT}.err.log" &
 echo $! > "$LOG_DIR/frontend.pid"
 

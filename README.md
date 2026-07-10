@@ -14,15 +14,27 @@ This repository provides a company Ubuntu reference for an AI-company style `Cla
 Run these commands after cloning:
 
 ```bash
-python3 scripts/verify_install.py
+python3 scripts/verify_install.py --strict --json
+python3 scripts/validate_ai_company_spec.py docs/ai_specs/ai-company-release-readiness-strict-demo.json
 python3 scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock
 ```
 
 If your system uses `python` instead of `python3`:
 
 ```bash
-python scripts/verify_install.py
+python scripts/verify_install.py --strict --json
+python scripts/validate_ai_company_spec.py docs/ai_specs/ai-company-release-readiness-strict-demo.json
 python scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock
+```
+
+Strict verification checks that the runner, workers, prep script, verifier, canonical spec, fixtures, profiles, skill, and dashboard all belong to one release. Do not start a live run when it reports `PACKAGE_INTEGRITY_FAILED` or `SPEC_CONTRACT_INVALID`.
+
+For a skill-only company installation:
+
+```bash
+bash .claude/skills/research-task-orchestrator/scripts/install_runtime.sh
+bash .claude/skills/research-task-orchestrator/scripts/run_task.sh \
+  docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode live
 ```
 
 A successful run writes:
@@ -45,37 +57,57 @@ main_agent_memory_guard_report.json
 
 ## Live Router Mode
 
-Live mode requires your existing Claude Code Router and an OpenAI-compatible open-source LLM endpoint. It still does not read model files directly from this repo.
+Live mode requires an existing Claude Code + Claude Code Router setup. The repository does not need to know which model service or model the router uses.
+
+To verify that the agent meeting itself is live, run:
+
+```bash
+AI_COMPANY_LIVE_MEETING_TRANSPORT=auto \
+python3 scripts/smoke_live_meeting.py
+```
+
+The smoke report must show:
+
+```text
+ok: true
+meeting_mode: live
+live_meeting_used: true
+live_turn_count: 4 or higher
+live_transport: claude_cli
+live_degraded: false
+```
+
+For full live execution, run:
 
 ```bash
 bash scripts/run_common_research_with_router.sh docs/ai_specs/ai-company-release-readiness-strict-demo.json live
 ```
 
-The live runner fails fast in this order:
+Meeting turns and full worker tasks use separate boundaries:
 
-1. model endpoint: `MODEL_MODELS_URL` or `MODEL_TAGS_URL`
-2. Claude Code Router `/health`
-3. Claude Code Router `/v1/messages`
+1. Live meeting defaults to `claude --bare -p`, which inherits the existing router configuration.
+2. `/run-task` remains a full worker-task API and is not used as a meeting-turn API.
+3. Direct CCR `/v1/messages` is optional and only used with `AI_COMPANY_LIVE_MEETING_TRANSPORT=ccr_http`.
+4. Model endpoint probes remain optional diagnostics when `AI_COMPANY_PROBE_MODEL_ENDPOINTS=1`.
 
 Useful environment overrides:
 
 ```bash
-export MODEL_MODELS_URL=http://127.0.0.1:11434/v1/models
-export MODEL_TAGS_URL=http://127.0.0.1:11434/api/tags
-export CCR_BASE_URL=http://127.0.0.1:3456
-export CCR_API_KEY=local-router-token
-export CLAUDE_MODEL_ALIAS=ollama,qwen2.5-coder:3b
-export CCR_PREFERRED_MODEL=qwen2.5-coder:3b
-export CCR_MAX_OUTPUT_TOKENS=1024
+export AI_COMPANY_LIVE_MEETING_TRANSPORT=auto
+export AI_COMPANY_CLAUDE_BIN=claude
+export AI_COMPANY_LIVE_MEETING_TIMEOUT_SEC=90
+export AI_COMPANY_LIVE_TRANSPORT_RETRIES=2
+export AI_COMPANY_LIVE_CONTRACT_RETRIES=1
 ```
 
-For Claude Code Router, prefer comma provider syntax when selecting local Ollama models:
+Only environments that intentionally use direct CCR HTTP need these optional settings:
 
 ```bash
-export CLAUDE_MODEL_ALIAS=ollama,qwen2.5-coder:7b
+export AI_COMPANY_LIVE_MEETING_TRANSPORT=ccr_http
+export CCR_MESSAGES_URL=http://127.0.0.1:3456/v1/messages
+export CCR_API_KEY='<router-api-key>'
+export CLAUDE_MODEL_ALIAS='<router-model-alias>'
 ```
-
-Slash syntax such as `ollama/qwen2.5-coder:7b` may not route as expected in all CCR setups.
 
 The live runner performs a side-effect smoke check before the full live harness. The check is intentionally strict: the model must create the expected file content, not merely reply that it created it. If a qwen2.5 run returns a plausible success message without the verified file side effect, the run is blocked as `FAILED` instead of being counted as a successful AI-company execution.
 
@@ -84,8 +116,11 @@ The live runner performs a side-effect smoke check before the full live harness.
 Some local models can route through CCR but still emit pseudo tool calls as text instead of producing real side effects. For side-effect-heavy live tasks, use the deterministic action executor:
 
 ```bash
+export AI_COMPANY_LIVE_TASK_URL='http://127.0.0.1:8080/run-task'
 python3 scripts/run_local_model_action_executor.py --task "Create a small probe file and verify it."
 ```
+
+`AI_COMPANY_LIVE_TASK_URL` is the preferred provider-neutral transport. The executor does not need a model name or model-service URL; the existing Claude/Router runtime chooses them. Task wrappers may prepend verification logs, so the adapter extracts only the final JSON object containing an `actions` array. If the task API is not configured, the legacy CCR `/v1/messages` transport remains available with its existing model alias and authentication settings.
 
 The model must return strict JSON actions. The runner validates and executes only allowlisted actions:
 
@@ -140,11 +175,13 @@ Open:
 http://127.0.0.1:5174
 ```
 
-The dashboard is a localhost development runtime. If `8010` or `5174` is occupied by another service, stop that service or override ports:
+The dashboard builds and serves a localhost production frontend bundle. If `8010` or `5174` is occupied by another service, stop that service or override ports:
 
 ```bash
 AGENT_OS_BACKEND_PORT=8011 AGENT_OS_FRONTEND_PORT=5175 bash agent_os_mvp/smoke-dashboard.sh
 ```
+
+To inspect an externally mounted run root, set `AI_COMPANY_RESULTS_ROOT` before starting or smoking the dashboard. Set `AGENT_OS_REQUIRE_BROWSER_SMOKE=1` to require a rendered Chrome/Chromium DOM check in addition to HTTP checks.
 
 Stop:
 

@@ -20,6 +20,16 @@ SCRIPT = ROOT / "scripts" / "run_local_model_action_executor.py"
 
 
 class LocalModelActionExecutorTests(unittest.TestCase):
+    def test_provider_neutral_task_api_helpers(self) -> None:
+        self.assertEqual(executor.extract_task_api_text({"result": {"content": "manifest"}}), "manifest")
+        self.assertEqual(
+            executor.derive_task_status_url("http://127.0.0.1:8080/run-task", "run-123"),
+            "http://127.0.0.1:8080/runs/run-123",
+        )
+        noisy = 'verify output\n{"overall_status":"pass"}\n{"actions":[{"type":"finish","summary":"ok","artifacts":[]}]}\n'
+        extracted = json.loads(executor.extract_action_manifest_from_task_output(noisy))
+        self.assertEqual(extracted["actions"][0]["type"], "finish")
+
     def run_executor(self, manifest: dict, task: str = "create a probe file") -> subprocess.CompletedProcess[str]:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
@@ -64,6 +74,25 @@ class LocalModelActionExecutorTests(unittest.TestCase):
         self.assertTrue((run_dir / "worktree" / "probe.txt").exists())
         self.assertTrue((run_dir / "ai_company" / "task_harness_report.json").exists())
         self.assertTrue((run_dir / "results" / "job-001.status.json").exists())
+        self.assertIn("return_code=0", (run_dir / "results" / "job-001.exec.log").read_text(encoding="utf-8"))
+
+    def test_failed_command_persists_stdout_and_stderr(self) -> None:
+        proc = self.run_executor(
+            {
+                "actions": [
+                    {
+                        "type": "run_command",
+                        "command": [sys.executable, "-c", "import sys; print('visible-out'); print('visible-err', file=sys.stderr); raise SystemExit(7)"],
+                    }
+                ]
+            }
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        report = json.loads(proc.stdout)
+        exec_log = (Path(report["run_dir"]) / "results" / "job-001.exec.log").read_text(encoding="utf-8")
+        self.assertIn("return_code=7", exec_log)
+        self.assertIn("visible-out", exec_log)
+        self.assertIn("visible-err", exec_log)
 
     def test_rejects_path_traversal(self) -> None:
         proc = self.run_executor({"actions": [{"type": "write_file", "path": "../escape.txt", "content": "bad"}]})

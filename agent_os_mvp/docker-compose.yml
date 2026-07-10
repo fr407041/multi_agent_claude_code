@@ -1,0 +1,20 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      AGENT_OS_DB_PATH: /app/data/agent_os.db
+    ports:
+      - "8010:8000"
+    volumes:
+      - ./backend/data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: http://backend:8000
+    ports:
+      - "5174:5173"
+    depends_on:
+      - backend

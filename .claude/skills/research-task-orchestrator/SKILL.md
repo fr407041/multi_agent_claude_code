@@ -26,6 +26,7 @@ The skill bundles the verified orchestration runtime and lightweight web dashboa
 - Require every accepted subagent result to have at least one key claim with traceable evidence refs.
 - Record meeting output in structured JSON so stop hooks and KPI checks can validate it.
 - For live meetings, default to `AI_COMPANY_LIVE_MEETING_TRANSPORT=auto`. This invokes the installed Claude CLI and inherits its existing Router configuration without selecting a model endpoint.
+- For live action execution, prefer `AI_COMPANY_LIVE_TASK_URL`. It inherits the existing Claude/Router model configuration and must not require the skill to know the model name or model-service URL.
 - Keep `/run-task` for full worker tasks. Never treat it as a synchronous single meeting-turn API.
 - Accept live meeting success only when all required roles completed provider turns and `live_degraded=false`; deterministic fallback is protection, not live success.
 - Preserve each live turn's raw artifact, transport, duration, retry attempt, and token usage. Retry transient transport failures at most twice and malformed output at most once.

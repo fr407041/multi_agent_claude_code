@@ -1,10 +1,10 @@
 {
   "package_schema_version": 1,
-  "release_id": "2026.07.11-company.7",
+  "release_id": "2026.07.11-company.8",
   "runtime_files": [
     {
       "path": "scripts/package_contract.py",
-      "sha256": "6eede090d0c83951c87efe5b821c2cb961b3f4cd451f3036a8eabeae29d05cc1"
+      "sha256": "48960b3fbe8f5a544130deb3c30f9463a2cfc0e9ac5a2b2ab4a01b96a7fe5474"
     },
     {
       "path": "scripts/validate_ai_company_spec.py",
@@ -57,6 +57,10 @@
     {
       "path": "scripts/bounded_context_loader.py",
       "sha256": "482521e4f4739e9d99098a1cb5d39637716f6280661e6ec6a74d22fbf819a692"
+    },
+    {
+      "path": "scripts/run_local_model_action_executor.py",
+      "sha256": "00b9bdcd97b6816a51d2b42f5681f92c0f9aafd23c368964ec87fed73341e122"
     },
     {
       "path": "scripts/prepare_common_research_case.py",
@@ -206,7 +210,7 @@
   "skill_files": [
     {
       "path": "SKILL.md",
-      "sha256": "ff7c76e030e28494ed69acb06f4e7604f71c301a8a2f80395e5fa9f15602267b"
+      "sha256": "0586635707698807a3759e21fa79e8d4c6eeda497545e5309b3836c2c7828006"
     },
     {
       "path": "agents/openai.yaml",
@@ -238,11 +242,11 @@
     },
     {
       "path": "assets/agent_os_mvp/backend/app/main.py",
-      "sha256": "d1aace93a188ae5d9d169ad247cc10aebdba2243d1c9afa0675a8f1194082d1a"
+      "sha256": "2a0d5294bc5fa5656ee36a5b08c9c5a78deefe0928ac6b96c5128519be334514"
     },
     {
       "path": "assets/agent_os_mvp/backend/app/services/ai_company_monitor.py",
-      "sha256": "193f747860afd33113edfc4b02fa40da87a2d690a317dacb4fc635921ebb0d61"
+      "sha256": "842e5ae51d1c11b3279dbdbe014b345056b60fb9bce69b9e70199d8725b93a14"
     },
     {
       "path": "assets/agent_os_mvp/backend/requirements.txt",
@@ -258,7 +262,7 @@
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/App.jsx",
-      "sha256": "e9160a23c1fbf257703b9fe4cc5fa7b1c70afde8c752e7f26e3c82a071255ab1"
+      "sha256": "f8ae0678fa786738d4477fbd709ffe44a0b13f457ccfede5e9a7bb74264994ca"
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/styles.css",
@@ -266,7 +270,7 @@
     },
     {
       "path": "assets/agent_os_mvp/start-dashboard.sh",
-      "sha256": "ea2cfbbf2771a06600e6d718ac19b63a39536b48aad7121829c42ca1a89fed17"
+      "sha256": "b2895d18e272919f64e06ff82dc98c98911d06b1261d97f81637d4f9e915d1b4"
     },
     {
       "path": "assets/agent_os_mvp/stop-dashboard.sh",
@@ -274,7 +278,7 @@
     },
     {
       "path": "assets/agent_os_mvp/smoke-dashboard.sh",
-      "sha256": "7a56d25d1c1b44a19c55763411dbccc8e37b8d66dace9aa8598f6ace31a4ebab"
+      "sha256": "be42ba0becce13e065b4d8d08c24b220db8d757c795cbb551d9fe70bb2f6a2b5"
     }
   ]
 }

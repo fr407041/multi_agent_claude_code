@@ -69,6 +69,15 @@ function renderCount(value) {
   return value ?? "n/a";
 }
 
+function formatTokens(value) {
+  if (value === null || value === undefined || value === "") return "n/a";
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return value;
+  if (numberValue >= 1000000) return `${(numberValue / 1000000).toFixed(1)}M`;
+  if (numberValue >= 1000) return `${(numberValue / 1000).toFixed(1)}K`;
+  return String(numberValue);
+}
+
 function MetricTile({ label, value }) {
   return (
     <article className="metric-tile">
@@ -109,6 +118,10 @@ function AgentCard({ item }) {
         <div>
           <dt>Policy</dt>
           <dd>{item.effective_policy_level || "n/a"}</dd>
+        </div>
+        <div>
+          <dt>Tokens</dt>
+          <dd>{formatTokens(item.token_usage_summary?.estimated_total_tokens)}</dd>
         </div>
         <div>
           <dt>Scope</dt>
@@ -162,7 +175,7 @@ function firstSemanticFailure(finalResult) {
   return (finalResult.semantic_expectations || []).find((item) => item.status === "failed") || null;
 }
 
-function buildTrustGates(finalResult, watchdog) {
+function buildTrustGates(finalResult, watchdog, packagePreflight) {
   const artifactChecks = finalResult.artifact_checks || {};
   const artifactValues = Object.values(artifactChecks);
   const artifactPassed =
@@ -176,6 +189,14 @@ function buildTrustGates(finalResult, watchdog) {
   const schemaContext = finalResult.schema_context || {};
   const watchdogStatus = normalizeStatus(watchdog?.watchdog_status || "not-run");
   return [
+    {
+      key: "package",
+      label: "Package",
+      status: packagePreflight.package_integrity ? (packagePreflight.package_integrity === "pass" ? "pass" : "fail") : "unknown",
+      detail: packagePreflight.package_integrity === "pass"
+        ? packagePreflight.release_id || "verified"
+        : packagePreflight.missing_files?.[0] || packagePreflight.hash_mismatches?.[0]?.path || "integrity unavailable",
+    },
     {
       key: "artifact",
       label: "Artifact",
@@ -203,7 +224,13 @@ function buildTrustGates(finalResult, watchdog) {
   ];
 }
 
-function buildNextAction(verdict, finalResult, watchdog) {
+function buildNextAction(verdict, finalResult, watchdog, packagePreflight) {
+  if (packagePreflight.package_integrity && packagePreflight.package_integrity !== "pass") {
+    const target = packagePreflight.missing_files?.[0] || packagePreflight.hash_mismatches?.[0]?.path;
+    return target
+      ? `Repair package integrity first: ${target}. Do not rerun model agents yet.`
+      : "Run strict package verification before rerunning model agents.";
+  }
   const semanticFailure = firstSemanticFailure(finalResult);
   if (semanticFailure) {
     return `Fix ${semanticFailure.artifact}:${semanticFailure.path}. Expected ${JSON.stringify(semanticFailure.expected)}, got ${JSON.stringify(semanticFailure.actual)}.`;
@@ -235,7 +262,15 @@ function buildAgentFlow(run, finalResult, watchdog) {
   const semanticFailure = firstSemanticFailure(finalResult);
   return [
     { label: "Planner", status: run?.meeting_status ? "done" : "idle", note: run?.meeting_status || "no meeting" },
-    { label: "Model", status: run?.execution_jobs_run ? "done" : roleState(["research_agent", "synthesis_agent", "local_action_executor"]), note: `${run?.execution_jobs_run || 0} job(s)` },
+    {
+      label: "Model",
+      status: run?.live_degraded ? "failed" : run?.live_meeting_used ? "done" : run?.execution_jobs_run ? "done" : roleState(["research_agent", "synthesis_agent", "local_action_executor"]),
+      note: run?.live_meeting_used
+        ? `${run?.meeting?.live_turn_count || 0} live turn(s) via ${run?.live_transport || run?.meeting?.live_transport || "unknown"}`
+        : run?.live_degraded
+          ? run?.degrade_category || run?.meeting?.degrade_category || "live degraded"
+          : `${run?.execution_jobs_run || 0} job(s)`,
+    },
     { label: "Executor", status: semanticFailure ? "failed" : finalResult.all_passed === false ? "failed" : "done", note: semanticFailure ? "semantic mismatch" : "artifact checks" },
     { label: "Reviewer", status: run?.review_verdicts?.length ? "done" : roleState(["reviewer_worker", "risk_reviewer"]), note: `${run?.review_verdicts?.length || 0} verdict(s)` },
     { label: "Dashboard", status: normalizeStatus(watchdog?.watchdog_status) === "escalated" ? "failed" : "done", note: watchdog?.watchdog_status || "monitoring" },
@@ -323,12 +358,15 @@ export default function App() {
   const run = hasExplicitSelection ? selectedRun : monitor.latest_run;
   const selectedRunSummary = hasExplicitSelection ? selectedRun?.selected_run_summary || null : monitor.selected_run_preview;
   const allRunsSummary = monitor.all_runs_summary || emptyMonitor.all_runs_summary;
+  const overview = monitor.overview || emptyMonitor.overview;
   const finalResult = run?.final_result || {};
   const alerts = run?.alerts || [];
   const board = run?.agent_state_board || {};
   const failuresByAgent = run?.failures_by_agent || [];
   const failureSummary = run?.failure_summary || {};
   const watchdog = run?.watchdog || {};
+  const packagePreflight = run?.package_preflight || {};
+  const tokenSummary = run?.token_summary || {};
   const claimLedger = run?.claim_ledger || {};
   const claimMetrics = run?.claim_ledger_metrics || claimLedger.metrics || {};
   const claims = claimLedger.claims || [];
@@ -378,8 +416,8 @@ export default function App() {
     : "Run detail unavailable";
   const noRuns = !monitorLoading && (monitor.recent_runs || []).length === 0;
   const runVerdict = toRunVerdict(run, selectedRunSummary, finalResult, watchdog);
-  const trustGates = buildTrustGates(finalResult, watchdog);
-  const nextAction = buildNextAction(runVerdict, finalResult, watchdog);
+  const trustGates = buildTrustGates(finalResult, watchdog, packagePreflight);
+  const nextAction = buildNextAction(runVerdict, finalResult, watchdog, packagePreflight);
   const agentFlow = buildAgentFlow(run, finalResult, watchdog);
 
   return (
@@ -444,7 +482,7 @@ export default function App() {
         </article>
 
         <article className="surface trust-gates-card">
-          <SectionHeader title="Trust Gates" meta="Artifact / Semantic / Schema / Watchdog" />
+          <SectionHeader title="Trust Gates" meta="Package / Artifact / Semantic / Schema / Watchdog" />
           <div className="gate-grid">
             {trustGates.map((gate) => (
               <GateCard key={gate.key} gate={gate} />
@@ -497,18 +535,25 @@ export default function App() {
 
       <section className="health-grid">
         <article className="surface run-health">
-          <SectionHeader title="Run health" status={run?.overall_status || monitor.overview.latest_status} />
+          <SectionHeader title="Run health" status={run?.overall_status || overview.latest_status} />
           {run ? (
             <>
               <p className="decision-text">{run.decision_summary || "No decision summary has been recorded yet."}</p>
               <div className="info-grid">
                 <MetricTile label="Started" value={formatDate(run.started_at)} />
                 <MetricTile label="Meeting" value={run.meeting_status || "n/a"} />
+                <MetricTile label="Package" value={packagePreflight.package_integrity || run.package_integrity || "n/a"} />
+                <MetricTile label="Release" value={packagePreflight.release_id || run.release_id || "n/a"} />
                 <MetricTile label="Meeting Mode" value={run.meeting_mode || run.meeting?.meeting_mode || "deterministic"} />
+                <MetricTile label="Meeting Transport" value={run.live_transport || run.meeting?.live_transport || "n/a"} />
                 <MetricTile label="Meeting Fallback" value={(run.live_degraded || run.meeting?.live_degraded) ? "degraded" : "normal"} />
                 <MetricTile label="Profile" value={run.run_profile_mode || "n/a"} />
                 <MetricTile label="Artifact" value={finalResult.artifact_score ?? "n/a"} />
                 <MetricTile label="Watchdog" value={watchdog.watchdog_status || "not-run"} />
+                <MetricTile label="Token Total" value={formatTokens(tokenSummary.total_estimated_agent_tokens ?? run.total_estimated_agent_tokens)} />
+                <MetricTile label="Provider Tokens" value={formatTokens(tokenSummary.total_provider_agent_tokens)} />
+                <MetricTile label="Top Token Agent" value={tokenSummary.top_token_agent || run.top_token_agent || "n/a"} />
+                <MetricTile label="Token Risk" value={tokenSummary.overflow_risk_agent_count ?? run.overflow_risk_agent_count ?? "n/a"} />
               </div>
             </>
           ) : (
@@ -655,21 +700,28 @@ export default function App() {
                 <h3>Watchdog / Failures</h3>
                 <pre>{JSON.stringify({ watchdog, failureSummary, failuresByAgent }, null, 2)}</pre>
               </article>
-              <article>
-                <h3>Meeting</h3>
+                  <article>
+                    <h3>Meeting</h3>
                 <pre>{JSON.stringify({
                   meeting_mode: run?.meeting_mode || run?.meeting?.meeting_mode,
                   live_meeting_used: run?.live_meeting_used || run?.meeting?.live_meeting_used,
                   live_turn_count: run?.meeting?.live_turn_count,
+                  live_transport: run?.live_transport || run?.meeting?.live_transport,
+                  live_transport_reason: run?.live_transport_reason || run?.meeting?.live_transport_reason,
                   live_degraded: run?.live_degraded || run?.meeting?.live_degraded,
+                  degrade_category: run?.degrade_category || run?.meeting?.degrade_category,
                   degrade_reason: run?.degrade_reason || run?.meeting?.degrade_reason,
                   transcript_file: run?.meeting?.transcript_file,
                 }, null, 2)}</pre>
               </article>
-              <article>
-                <h3>KPI</h3>
-                <pre>{JSON.stringify(run?.kpis || {}, null, 2)}</pre>
-              </article>
+                  <article>
+                    <h3>Token Ledger</h3>
+                    <pre>{JSON.stringify(run?.token_ledger || {}, null, 2)}</pre>
+                  </article>
+                  <article>
+                    <h3>KPI</h3>
+                    <pre>{JSON.stringify(run?.kpis || {}, null, 2)}</pre>
+                  </article>
             </div>
           </div>
         ) : null}

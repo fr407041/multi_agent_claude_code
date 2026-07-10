@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -10,7 +11,14 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-RESULTS_ROOT = REPO_ROOT / "results" / "ai_company_task_harness"
+
+
+def get_results_root() -> Path:
+    configured = os.environ.get("AI_COMPANY_RESULTS_ROOT", "").strip()
+    if not configured:
+        return REPO_ROOT / "results" / "ai_company_task_harness"
+    path = Path(configured).expanduser()
+    return path.resolve() if path.is_absolute() else (REPO_ROOT / path).resolve()
 
 CANONICAL_ROSTER = [
     "meeting_coordinator",
@@ -810,9 +818,13 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
 
 
 def sync_ai_company_runs(connection: Connection) -> None:
-    if not RESULTS_ROOT.exists():
+    results_root = get_results_root()
+    # The configured artifact root is the dashboard's source of truth. Clearing
+    # stale rows prevents runs from a previous mount from leaking into All runs.
+    connection.execute("DELETE FROM ai_company_runs")
+    if not results_root.exists():
         return
-    run_dirs = sorted([path for path in RESULTS_ROOT.iterdir() if path.is_dir()], key=lambda item: item.name, reverse=True)
+    run_dirs = sorted([path for path in results_root.iterdir() if path.is_dir()], key=lambda item: item.name, reverse=True)
     synced_at = datetime.now(timezone.utc).isoformat()
     for run_dir in run_dirs:
         try:

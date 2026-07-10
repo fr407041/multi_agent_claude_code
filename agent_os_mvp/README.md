@@ -46,6 +46,20 @@ Open:
 http://127.0.0.1:5174
 ```
 
+`start-dashboard.sh` builds the React production bundle and serves it with Vite preview. It does not expose the Vite development runtime.
+
+The backend reads `results/ai_company_task_harness` by default. Point it at an externally mounted run root when needed:
+
+```bash
+AI_COMPANY_RESULTS_ROOT=/runs/company_tasks bash ./start-dashboard.sh
+```
+
+For strict browser-level smoke validation with Chrome or Chromium:
+
+```bash
+AGENT_OS_REQUIRE_BROWSER_SMOKE=1 bash ./smoke-dashboard.sh
+```
+
 Stop:
 
 ```bash
