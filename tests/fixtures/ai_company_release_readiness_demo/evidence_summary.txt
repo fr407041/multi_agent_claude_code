@@ -1,0 +1,17 @@
+Release target: AgentOps Dashboard v1.3 for internal Ubuntu users.
+Functional tests: 42 unit tests passed, 0 failed.
+Backend API tests: 11 passed, 0 failed.
+Live router smoke: 4 of 5 prompts succeeded; 1 partial response was retried successfully.
+Blocker B1: live strict-profile violation drill has not completed against the production router path.
+Blocker B2: 8-hour dashboard backend soak test has not completed.
+Token overflow mitigation: Main Agent Memory Guard checkpoints condensed state and avoids replaying full logs.
+Router mitigation: watchdog treats partial or empty router response as recoverable failure with bounded retry/replan.
+Rollback posture: rollback script is documented, staging-tested, and expected rollback time is 15 minutes.
+Decision implication: release should be conditional go only after B1 and B2 are closed; not clean go today.
+Uncertainty: no long-duration soak evidence and no live strict-profile violation drill evidence yet.
+Historical fixture frontend build: passed in 18.4 seconds; current checkout dashboard runtime is not verified.
+Historical fixture dashboard smoke: backend health returned 200 and frontend returned 200; current checkout dashboard runtime is not verified.
+Failure drill evidence: deleting one status file produced MISSING_STATUS_FILE and watchdog generated a fallback failure status.
+False success mitigation: claim ledger requires evidence refs and reviewer can block FALSE_SUCCESS_BLOCKED.
+Non-blocker N1: minor mobile spacing issue.
+Non-blocker N2: historical trend table is table-only by design.

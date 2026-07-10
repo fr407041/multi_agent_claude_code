@@ -72,6 +72,15 @@ def _build_alerts(report: dict[str, Any]) -> list[dict[str, Any]]:
     kpis = report.get("kpis", {})
     failure_counts = kpis.get("failure_family_counts", {})
     alerts: list[dict[str, Any]] = []
+    if kpis.get("package_integrity") not in {None, "", "pass"}:
+        alerts.append(
+            {
+                "type": "package_integrity",
+                "severity": "red",
+                "title": "Package Integrity Failed",
+                "detail": "Runtime, spec, or verifier files do not match one release. Fix package integrity before rerunning agents.",
+            }
+        )
 
     if failure_counts.get("overflow", 0) > 0:
         alerts.append(
@@ -329,7 +338,9 @@ def _build_agent_state_board(
     meeting: dict[str, Any],
     status_by_task: dict[str, dict[str, Any]],
     verdict_by_task: dict[str, dict[str, Any]],
+    token_by_agent: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[str], dict[str, list[dict[str, Any]]], list[dict[str, Any]], dict[str, int]]:
+    token_by_agent = token_by_agent or {}
     discussion_roles = [item.get("role", "") for item in meeting.get("discussion_log", []) if item.get("role")]
     assignment_roles = [item.get("owner_role", "") for item in meeting.get("task_assignments", []) if item.get("owner_role")]
 
@@ -372,6 +383,7 @@ def _build_agent_state_board(
                     "depends_on": [],
                     "fallback_plan": "",
                     "verification_note": "",
+                    "token_usage_summary": token_by_agent.get(role, {}),
                 }
             )
         else:
@@ -409,6 +421,7 @@ def _build_agent_state_board(
                         "effective_tool_policy": assignment.get("effective_tool_policy") or (status or {}).get("effective_tool_policy", ""),
                         "profile_resolved_from": assignment.get("profile_resolved_from", ""),
                         "profile_policy_notes": (verdict or {}).get("profile_policy_notes", []),
+                        "token_usage_summary": token_by_agent.get(role, {}),
                     }
                 )
                 failure_record = _build_failure_record(
@@ -624,6 +637,8 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     execution = _load_json(ai_dir / "execution_summary.json") if (ai_dir / "execution_summary.json").exists() else {}
     reviewer = _load_json(ai_dir / "reviewer_verdicts.json") if (ai_dir / "reviewer_verdicts.json").exists() else {}
     claim_ledger = _load_json(ai_dir / "subagent_claim_ledger.json") if (ai_dir / "subagent_claim_ledger.json").exists() else {}
+    token_ledger = _load_json(ai_dir / "agent_token_ledger.json") if (ai_dir / "agent_token_ledger.json").exists() else {}
+    package_preflight = _load_json(ai_dir / "package_preflight_report.json") if (ai_dir / "package_preflight_report.json").exists() else {}
     watchdog = _load_json(ai_dir / "watchdog_report.json") if (ai_dir / "watchdog_report.json").exists() else {}
     plan = _load_json(run_dir / "plan.json") if (run_dir / "plan.json").exists() else {}
     summary = _read_text(run_dir / "worktree" / "summary.md") if (run_dir / "worktree" / "summary.md").exists() else ""
@@ -635,10 +650,13 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     status_by_task = {item.get("id"): item for item in status_records}
     verdict_by_task = {item.get("task_id"): item for item in reviewer.get("verdicts", []) if item.get("task_id")}
 
+    token_by_agent = {item.get("agent"): item for item in token_ledger.get("agents", []) if item.get("agent")}
+
     roster, agent_state_board, failures_by_agent, failure_summary = _build_agent_state_board(
         meeting,
         status_by_task,
         verdict_by_task,
+        token_by_agent,
     )
 
     discussion = [
@@ -701,8 +719,14 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "meeting_status": meeting.get("meeting_status", ""),
         "meeting_mode": meeting.get("meeting_mode", "deterministic"),
         "live_meeting_used": bool(meeting.get("live_meeting_used", False)),
+        "live_transport": meeting.get("live_transport", ""),
+        "live_transport_reason": meeting.get("live_transport_reason", ""),
         "live_degraded": bool(meeting.get("live_degraded", False)),
         "degrade_reason": meeting.get("degrade_reason", ""),
+        "degrade_category": meeting.get("degrade_category", ""),
+        "package_integrity": package_preflight.get("package_integrity", report.get("kpis", {}).get("package_integrity", "unknown")),
+        "release_id": package_preflight.get("release_id", report.get("kpis", {}).get("release_id", "")),
+        "spec_contract_status": package_preflight.get("spec_contract_status", report.get("kpis", {}).get("spec_contract_status", "unknown")),
         "started_at": _parse_run_started_at(run_dir.name),
         "goal": meeting.get("goal") or report.get("kpis", {}).get("goal", ""),
         "decision_summary": meeting.get("decision_summary", ""),
@@ -717,6 +741,10 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "idle_agent_count": len(agent_state_board["idle"]),
         "roster_count": len(roster),
         "run_profile_mode": report.get("kpis", {}).get("run_profile_mode") or meeting.get("run_profile_mode", "unknown"),
+        "total_estimated_agent_tokens": report.get("kpis", {}).get("total_estimated_agent_tokens", token_ledger.get("total_estimated_agent_tokens", 0)),
+        "max_agent_turn_tokens": report.get("kpis", {}).get("max_agent_turn_tokens", token_ledger.get("max_agent_turn_tokens", 0)),
+        "top_token_agent": report.get("kpis", {}).get("top_token_agent", token_ledger.get("top_token_agent", "")),
+        "overflow_risk_agent_count": report.get("kpis", {}).get("overflow_risk_agent_count", token_ledger.get("overflow_risk_agent_count", 0)),
     }
 
     active_agents = agent_state_board["running"] + agent_state_board["waiting"]
@@ -742,13 +770,27 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
             "claims": claim_ledger.get("claims", [])[:50],
         },
         "claim_ledger_metrics": claim_ledger.get("metrics", {}),
+        "token_ledger": token_ledger,
+        "package_preflight": package_preflight,
+        "token_summary": {
+            "warning_threshold_tokens": token_ledger.get("warning_threshold_tokens"),
+            "total_estimated_agent_tokens": current_status["total_estimated_agent_tokens"],
+            "total_provider_agent_tokens": token_ledger.get("total_provider_agent_tokens", 0),
+            "total_effective_agent_tokens": token_ledger.get("total_effective_agent_tokens", 0),
+            "max_agent_turn_tokens": current_status["max_agent_turn_tokens"],
+            "top_token_agent": current_status["top_token_agent"],
+            "overflow_risk_agent_count": current_status["overflow_risk_agent_count"],
+        },
         "watchdog": watchdog,
         "meeting": {
             "meeting_mode": meeting.get("meeting_mode", "deterministic"),
             "live_meeting_used": bool(meeting.get("live_meeting_used", False)),
             "live_turn_count": meeting.get("live_turn_count", 0),
+            "live_transport": meeting.get("live_transport", ""),
+            "live_transport_reason": meeting.get("live_transport_reason", ""),
             "live_degraded": bool(meeting.get("live_degraded", False)),
             "degrade_reason": meeting.get("degrade_reason", ""),
+            "degrade_category": meeting.get("degrade_category", ""),
             "transcript_file": meeting.get("transcript_file", ""),
             "rounds_used": meeting.get("rounds_used", 0),
             "round_limit": meeting.get("round_limit", 0),

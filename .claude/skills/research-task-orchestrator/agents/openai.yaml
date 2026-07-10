@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Task Orchestrator"
+  short_description: "Bounded multi-agent research flow with memory checkpoints, KPI verification, and a bundled dashboard."
+  default_prompt: "Use $research-task-orchestrator to plan a bounded research task, prepare compact evidence, checkpoint main-agent memory when context grows, dispatch small child jobs, verify the result, and install or open the dashboard when needed."

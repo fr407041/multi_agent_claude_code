@@ -9,23 +9,24 @@ BACKEND_PORT="${AGENT_OS_BACKEND_PORT:-8010}"
 FRONTEND_PORT="${AGENT_OS_FRONTEND_PORT:-5174}"
 BACKEND_HOST="${AGENT_OS_BACKEND_HOST:-127.0.0.1}"
 FRONTEND_HOST="${AGENT_OS_FRONTEND_HOST:-127.0.0.1}"
+
 mkdir -p "$LOG_DIR"
 "$ROOT_DIR/stop-dashboard.sh" >/dev/null 2>&1 || true
 
-if [[ ! -x "${BACKEND_DIR}/.venv/bin/python" ]]; then
-  echo "Missing backend venv. Run install_dashboard.sh first." >&2
-  exit 1
-fi
-if [[ ! -d "${FRONTEND_DIR}/node_modules" ]]; then
-  echo "Missing frontend node_modules. Run install_dashboard.sh first." >&2
-  exit 1
-fi
-
 cd "$BACKEND_DIR"
-nohup .venv/bin/python -m uvicorn app.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" >"$LOG_DIR/backend-${BACKEND_PORT}.out.log" 2>"$LOG_DIR/backend-${BACKEND_PORT}.err.log" &
+if [ ! -x ".venv/bin/python" ]; then
+  echo "backend virtualenv not found: $BACKEND_DIR/.venv"
+  exit 1
+fi
+nohup .venv/bin/python -m uvicorn app.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" \
+  >"$LOG_DIR/backend-${BACKEND_PORT}.out.log" 2>"$LOG_DIR/backend-${BACKEND_PORT}.err.log" &
 echo $! > "$LOG_DIR/backend.pid"
+
 cd "$FRONTEND_DIR"
-nohup env VITE_API_BASE_URL="http://127.0.0.1:${BACKEND_PORT}" npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" >"$LOG_DIR/frontend-${FRONTEND_PORT}.out.log" 2>"$LOG_DIR/frontend-${FRONTEND_PORT}.err.log" &
+nohup env VITE_API_BASE_URL="http://127.0.0.1:${BACKEND_PORT}" npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" \
+  >"$LOG_DIR/frontend-${FRONTEND_PORT}.out.log" 2>"$LOG_DIR/frontend-${FRONTEND_PORT}.err.log" &
 echo $! > "$LOG_DIR/frontend.pid"
+
 echo "Backend:  http://127.0.0.1:${BACKEND_PORT}"
 echo "Frontend: http://127.0.0.1:${FRONTEND_PORT}"
+echo "Logs:     $LOG_DIR"
