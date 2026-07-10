@@ -504,6 +504,8 @@ export default function App() {
               <div className="info-grid">
                 <MetricTile label="Started" value={formatDate(run.started_at)} />
                 <MetricTile label="Meeting" value={run.meeting_status || "n/a"} />
+                <MetricTile label="Meeting Mode" value={run.meeting_mode || run.meeting?.meeting_mode || "deterministic"} />
+                <MetricTile label="Meeting Fallback" value={(run.live_degraded || run.meeting?.live_degraded) ? "degraded" : "normal"} />
                 <MetricTile label="Profile" value={run.run_profile_mode || "n/a"} />
                 <MetricTile label="Artifact" value={finalResult.artifact_score ?? "n/a"} />
                 <MetricTile label="Watchdog" value={watchdog.watchdog_status || "not-run"} />
@@ -652,6 +654,17 @@ export default function App() {
               <article>
                 <h3>Watchdog / Failures</h3>
                 <pre>{JSON.stringify({ watchdog, failureSummary, failuresByAgent }, null, 2)}</pre>
+              </article>
+              <article>
+                <h3>Meeting</h3>
+                <pre>{JSON.stringify({
+                  meeting_mode: run?.meeting_mode || run?.meeting?.meeting_mode,
+                  live_meeting_used: run?.live_meeting_used || run?.meeting?.live_meeting_used,
+                  live_turn_count: run?.meeting?.live_turn_count,
+                  live_degraded: run?.live_degraded || run?.meeting?.live_degraded,
+                  degrade_reason: run?.degrade_reason || run?.meeting?.degrade_reason,
+                  transcript_file: run?.meeting?.transcript_file,
+                }, null, 2)}</pre>
               </article>
               <article>
                 <h3>KPI</h3>
