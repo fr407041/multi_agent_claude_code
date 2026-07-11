@@ -84,7 +84,7 @@
     },
     {
       "path": "scripts/worker_claude_router.py",
-      "sha256": "9a4f4c81d1df812c004f1fdbb24db50a21e25c384684e3423e833da13dc6788d"
+      "sha256": "18ea665ff9e9188459a6d88a68f09d3da3a4e42204b006ce17c7f324f11b2758"
     },
     {
       "path": "scripts/worker_claude_router.sh",

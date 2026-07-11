@@ -342,6 +342,7 @@ CONTENT_START
 CONTENT_END
 
 Do not claim to call tools. The wrapper writes one declared artifact and runs the declared test command.
+Any declared input shown as present in the Context guard manifest is available. Do not return NEEDS_REPLAN for an input that is present; use its supplied Context content.
 If required input is missing, return STATUS: NEEDS_REPLAN instead of fabricating evidence.
 """
     elif worker_kind == "multi":
