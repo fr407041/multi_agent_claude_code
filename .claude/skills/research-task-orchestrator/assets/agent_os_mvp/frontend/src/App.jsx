@@ -170,10 +170,12 @@ function toRunVerdict(run, selectedRunSummary, finalResult, watchdog) {
   const status = normalizeStatus(run?.overall_status || selectedRunSummary?.overall_status);
   const hasFailedAgent = (selectedRunSummary?.failed_agent_count || run?.failed_agent_count || 0) > 0;
   const hasSemanticFailure = (finalResult.semantic_expectations || []).some((item) => item.status === "failed");
+  const domainFailed = finalResult.domain_verdict?.enabled && finalResult.domain_verdict?.status !== "pass";
   const watchdogStatus = normalizeStatus(watchdog?.watchdog_status);
-  if (status === "pass") return "PASS";
+  if (domainFailed) return "FAIL";
   if (status === "fail") return "FAIL";
   if (hasFailedAgent || hasSemanticFailure || watchdogStatus === "escalated") return "NEEDS REPAIR";
+  if (status === "pass") return "PASS";
   if ((selectedRunSummary?.running_agent_count || run?.running_agent_count || 0) > 0) return "RUNNING";
   return "UNKNOWN";
 }
@@ -195,6 +197,7 @@ function buildTrustGates(finalResult, watchdog, packagePreflight) {
   const semanticFailed = semanticItems.filter((item) => item.status === "failed");
   const schemaContext = finalResult.schema_context || {};
   const watchdogStatus = normalizeStatus(watchdog?.watchdog_status || "not-run");
+  const domainVerdict = finalResult.domain_verdict || {};
   return [
     {
       key: "package",
@@ -223,6 +226,14 @@ function buildTrustGates(finalResult, watchdog, packagePreflight) {
       detail: schemaContext.schema_context_available ? `${schemaContext.source_count || 0} source(s)` : "not provided",
     },
     {
+      key: "domain",
+      label: "Domain",
+      status: !domainVerdict.enabled ? "unknown" : domainVerdict.status === "pass" ? "pass" : "fail",
+      detail: !domainVerdict.enabled
+        ? "not configured"
+        : `${domainVerdict.checks?.length - domainVerdict.defects?.length || 0}/${domainVerdict.checks?.length || 0} runner checks`,
+    },
+    {
       key: "watchdog",
       label: "Watchdog",
       status: watchdogStatus === "healthy" ? "pass" : watchdogStatus === "escalated" ? "fail" : "unknown",
@@ -237,6 +248,13 @@ function buildNextAction(verdict, finalResult, watchdog, packagePreflight) {
     return target
       ? `Repair package integrity first: ${target}. Do not rerun model agents yet.`
       : "Run strict package verification before rerunning model agents.";
+  }
+  const domainVerdict = finalResult.domain_verdict || {};
+  if (domainVerdict.enabled && domainVerdict.status !== "pass") {
+    const defect = domainVerdict.defects?.[0] || {};
+    const target = [defect.artifact, defect.path].filter(Boolean).join(":");
+    const reason = defect.reason || defect.kind || "runner-owned domain validation failed";
+    return `Fix domain result${target ? ` at ${target}` : ""}: ${reason}. Do not trust model-reported KPI values.`;
   }
   const semanticFailure = firstSemanticFailure(finalResult);
   if (semanticFailure) {
@@ -254,7 +272,7 @@ function buildNextAction(verdict, finalResult, watchdog, packagePreflight) {
   if ((finalResult.semantic_expectations || []).length > 0 && !schemaContext.schema_context_available) {
     return "Rerun with seed/schema context enabled so repair feedback can reference real input fields.";
   }
-  if (verdict === "PASS") return "Ready to trust. Review Evidence before publishing.";
+  if (verdict === "PASS") return "Runner-owned gates passed. Review Evidence before publishing.";
   if (verdict === "RUNNING") return "Wait for the current agent step to finish, then refresh.";
   return "Select a run or inspect Debug for raw artifacts.";
 }
@@ -489,7 +507,7 @@ export default function App() {
         </article>
 
         <article className="surface trust-gates-card">
-          <SectionHeader title="Trust Gates" meta="Package / Artifact / Semantic / Schema / Watchdog" />
+          <SectionHeader title="Trust Gates" meta="Package / Artifact / Semantic / Schema / Domain / Watchdog" />
           <div className="gate-grid">
             {trustGates.map((gate) => (
               <GateCard key={gate.key} gate={gate} />

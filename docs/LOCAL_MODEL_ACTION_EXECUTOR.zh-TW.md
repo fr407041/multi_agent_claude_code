@@ -88,6 +88,21 @@ python3 scripts/run_local_model_action_executor.py \
 
 `--expect-json-value FILE:PATH=VALUE` 會強制檢查 JSON artifact 內容。`PATH` 使用簡單 dot path，例如 `status_counts.passed`。數字會用數字比較，不只比對字串。
 
+## Runner-owned domain verdict
+
+模型寫出的 `status=pass` 或 `accuracy=1.0` 不是獨立證據。需要公司級驗收時，由 runner 使用下列參數驗證：
+
+```bash
+python3 scripts/run_local_model_action_executor.py \
+  --task "Generate and validate a bounded result" \
+  --result-status result.json:status --result-pass-value pass \
+  --compare-json actual.json:expected.json \
+  --require-json-path result.json:parsed_count \
+  --invariant 'result.json:parsed_count>0'
+```
+
+`--invariant` 只支援 `== != > >= < <=` 的受限比較，不執行 Python 或 shell expression。`--schema-file` 可提供 `{ "artifact": "result.json", "schema": {...} }` 或 `{ "artifacts": { "result.json": {...} } }` 格式的最小 JSON Schema mapping。結果寫入 `ai_company/domain_verdict.json`；任一 domain defect 都會使整體 run 失敗。
+
 範例：
 
 ```bash

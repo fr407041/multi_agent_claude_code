@@ -23,6 +23,21 @@ class AiCompanyMonitorStateBoardTest(unittest.TestCase):
         self.assertFalse(any(item["type"] == "healthy" for item in alerts))
         self.assertTrue(any(item["type"] == "run_failed" and item["severity"] == "red" for item in alerts))
 
+    def test_domain_failure_never_emits_healthy_alert(self) -> None:
+        alerts = _build_alerts(
+            {"overall_status": "pass", "kpis": {}},
+            {"watchdog_status": "healthy"},
+            {"all_passed": True},
+            {
+                "enabled": True,
+                "status": "fail",
+                "defects": [{"kind": "invariant", "artifact": "kpi.json", "path": "parsed_count", "reason": "value_mismatch"}],
+            },
+        )
+        self.assertFalse(any(item["type"] == "healthy" for item in alerts))
+        domain_alert = next(item for item in alerts if item["type"] == "domain_verdict_failed")
+        self.assertIn("kpi.json:parsed_count", domain_alert["detail"])
+
     def test_claim_evidence_refs_are_normalized(self) -> None:
         claims = _normalize_claims([{"claim": "ok", "evidence_refs": ["results/raw.txt", {"path": "worktree/out.json"}, {}]}])
         self.assertEqual(claims[0]["evidence_refs"], [
@@ -176,6 +191,27 @@ class AiCompanyMonitorSummaryTest(unittest.TestCase):
         self.assertEqual(snapshot["all_runs_summary"]["total_runs"], 2)
         self.assertEqual(snapshot["selected_run_preview"]["run_id"], "run-new-fail")
         self.assertEqual(snapshot["selected_run_preview"]["overall_status"], "fail")
+
+    def test_synced_domain_failure_overrides_reported_pass(self) -> None:
+        root = Path(self.tempdir.name) / "domain-runs"
+        ai_dir = root / "run-domain-fail" / "ai_company"
+        ai_dir.mkdir(parents=True)
+        (ai_dir / "task_harness_report.json").write_text(json.dumps({
+            "spec_id": "domain-test", "started_at": "2026-07-11T03:00:00+00:00", "overall_status": "pass", "kpis": {"artifact_score": 1.0},
+        }), encoding="utf-8")
+        (ai_dir / "domain_verdict.json").write_text(json.dumps({
+            "enabled": True, "status": "fail", "score": 0.5,
+            "checks": [{"status": "failed"}],
+            "defects": [{"kind": "invariant", "artifact": "kpi.json", "path": "parsed_count", "reason": "value_mismatch"}],
+            "validator_source": "runner_owned",
+        }), encoding="utf-8")
+        with get_db() as connection:
+            with patch("app.services.ai_company_monitor.get_results_root", return_value=root):
+                snapshot = collect_ai_company_monitor(connection)
+                detail = get_ai_company_run_detail(connection, "run-domain-fail")
+        self.assertEqual(snapshot["selected_run_preview"]["overall_status"], "fail")
+        self.assertEqual(detail["final_result"]["domain_verdict"]["status"], "fail")
+        self.assertTrue(any(item["type"] == "domain_verdict_failed" for item in detail["alerts"]))
 
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()

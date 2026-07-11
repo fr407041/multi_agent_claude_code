@@ -161,6 +161,81 @@ class LocalModelActionExecutorTests(unittest.TestCase):
         self.assertEqual(report["overall_status"], "fail")
         self.assertEqual(report["kpis"]["artifact_pass_rate"], 0.0)
 
+    def test_non_allowlisted_command_preserves_partial_action_log(self) -> None:
+        proc = self.run_executor(
+            {
+                "actions": [
+                    {"type": "write_file", "path": "kept.txt", "content": "kept\n"},
+                    {"type": "run_command", "command": ["powershell", "-Command", "echo rejected"]},
+                ]
+            }
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        report = json.loads(proc.stdout)
+        actions = json.loads((Path(report["run_dir"]) / "results" / "job-001.action_log.json").read_text())["actions"]
+        self.assertEqual([item["status"] for item in actions], ["ok", "failed"])
+        self.assertIn("not allowlisted", actions[-1]["error"])
+
+    def test_stage_local_provenance_repair_reopens_owning_stage(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        responses = [
+            json.dumps({"actions": [{"type": "write_file", "path": "source.py", "content": "from pathlib import Path\nPath('derived.json').write_text('{\\\"status\\\": \\\"pass\\\"}')\n"}]}),
+            json.dumps({"actions": [{"type": "write_file", "path": "derived.json", "content": "{\"status\": \"pass\"}"}]}),
+            json.dumps({"actions": [{"type": "run_command", "command": [sys.executable, "source.py"]}]}),
+            json.dumps({"actions": [{"type": "write_file", "path": "report.md", "content": "# Report\n"}]}),
+        ]
+        calls: list[str] = []
+
+        def fake_call(task: str, timeout_sec: int, repair_feedback: str = "") -> str:
+            calls.append(repair_feedback)
+            return responses[len(calls) - 1]
+
+        with mock.patch.object(executor, "call_ccr_for_manifest", side_effect=fake_call):
+            with mock.patch.object(sys, "argv", [
+                "run_local_model_action_executor.py", "--task", "build derived report",
+                "--out-root", str(root / "runs"), "--run-id", "run-stage-provenance-repair",
+                "--expected-artifact", "source.py", "--expected-artifact", "derived.json",
+                "--expected-artifact", "report.md", "--derived-artifact", "derived.json",
+                "--allowed-commands", Path(sys.executable).name,
+                "--execution-strategy", "staged", "--stage-artifact-limit", "1", "--max-repair-rounds", "1",
+            ]):
+                code = executor.main()
+        self.assertEqual(code, 0)
+        self.assertIn("failed_derived_artifacts", calls[2])
+        self.assertIn("derived.json", calls[2])
+        report = json.loads((root / "runs" / "run-stage-provenance-repair" / "ai_company" / "task_harness_report.json").read_text())
+        self.assertEqual(report["overall_status"], "pass")
+        self.assertEqual(report["kpis"]["repair_rounds_used"], 1)
+
+    def test_runner_owned_domain_verdict_blocks_self_reported_pass(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        actual = root / "actual.json"
+        expected = root / "expected.json"
+        actual.write_text(json.dumps({"status": "pass", "parsed_count": 0, "items": [{"id": 1}]}), encoding="utf-8")
+        expected.write_text(json.dumps({"status": "pass", "parsed_count": 2, "items": [{"id": 1}, {"id": 2}]}), encoding="utf-8")
+        manifest = root / "manifest.json"
+        manifest.write_text(json.dumps({"actions": [
+            {"type": "read_file", "path": "expected.json"},
+            {"type": "write_file", "path": "actual.json", "content": actual.read_text(encoding="utf-8")},
+        ]}), encoding="utf-8")
+        proc = subprocess.run([
+            sys.executable, str(SCRIPT), "--task", "validate domain result", "--manifest-file", str(manifest),
+            "--seed-file", f"{expected}=expected.json", "--expected-artifact", "actual.json",
+            "--result-status", "actual.json:status", "--result-pass-value", "pass",
+            "--compare-json", "actual.json:expected.json", "--require-json-path", "actual.json:parsed_count",
+            "--invariant", "actual.json:parsed_count>0", "--out-root", str(root / "runs"), "--run-id", "run-domain-fail",
+        ], cwd=ROOT, text=True, capture_output=True, check=False)
+        self.assertNotEqual(proc.returncode, 0)
+        report = json.loads(proc.stdout)
+        self.assertEqual(report["kpis"]["failure_category"], "domain_verdict_failed")
+        verdict = json.loads((Path(report["run_dir"]) / "ai_company" / "domain_verdict.json").read_text())
+        self.assertEqual(verdict["status"], "fail")
+        self.assertGreaterEqual(len(verdict["defects"]), 2)
+
     def test_iterative_repair_after_missing_expected_artifact(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)

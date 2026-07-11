@@ -276,10 +276,14 @@ def execute_manifest(
     final_summary = ""
     for index, action in enumerate(actions, start=1):
         if not isinstance(action, dict):
-            raise ValueError(f"action {index} must be an object")
+            entry = {"index": index, "type": "invalid", "started_at": now_iso(), "finished_at": now_iso(), "status": "failed", "error": f"action {index} must be an object"}
+            action_log.append(entry)
+            raise ActionExecutionError(entry["error"], action_log, generated_files, final_summary)
         action_type = str(action.get("type") or "")
         if action_type not in ALLOWED_ACTIONS:
-            raise ValueError(f"unsupported action type: {action_type}")
+            entry = {"index": index, "type": action_type or "invalid", "started_at": now_iso(), "finished_at": now_iso(), "status": "failed", "error": f"unsupported action type: {action_type}"}
+            action_log.append(entry)
+            raise ActionExecutionError(entry["error"], action_log, generated_files, final_summary)
         entry: dict[str, Any] = {"index": index, "type": action_type, "started_at": now_iso()}
         if action_type == "write_file":
             target = ensure_within(worktree, str(action.get("path") or ""))
@@ -298,10 +302,14 @@ def execute_manifest(
         elif action_type == "run_command":
             command = action.get("command")
             if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
-                raise ValueError("run_command.command must be a non-empty string array")
+                entry.update({"command": command, "status": "failed", "error": "run_command.command must be a non-empty string array", "finished_at": now_iso()})
+                action_log.append(entry)
+                raise ActionExecutionError(entry["error"], action_log, generated_files, final_summary)
             executable = Path(command[0]).name
             if executable not in allowed_commands:
-                raise ValueError(f"command not allowlisted: {command[0]}")
+                entry.update({"command": command, "status": "failed", "error": f"command not allowlisted: {command[0]}", "finished_at": now_iso()})
+                action_log.append(entry)
+                raise ActionExecutionError(entry["error"], action_log, generated_files, final_summary)
             timeout_sec = int(action.get("timeout_sec") or 60)
             before = _file_snapshot(worktree)
             proc = subprocess.run(command, cwd=worktree, text=True, capture_output=True, timeout=timeout_sec, check=False)
@@ -469,6 +477,174 @@ def validate_json_expectations(run_dir: Path, expectation_specs: list[str]) -> l
     return results
 
 
+def _load_worktree_json(run_dir: Path, artifact: str) -> Any:
+    target = ensure_within(run_dir / "worktree", artifact)
+    if not target.exists() or not target.is_file():
+        raise ValueError(f"artifact missing: {artifact}")
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+def _json_differences(actual: Any, expected: Any, path: str = "$") -> list[dict[str, Any]]:
+    differences: list[dict[str, Any]] = []
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return [{"path": path, "reason": "type_mismatch", "expected": "object", "actual": value_type_name(actual)}]
+        for key, expected_value in expected.items():
+            child_path = f"{path}.{key}"
+            if key not in actual:
+                differences.append({"path": child_path, "reason": "missing_key", "expected": expected_value, "actual": None})
+            else:
+                differences.extend(_json_differences(actual[key], expected_value, child_path))
+        for key in actual.keys() - expected.keys():
+            differences.append({"path": f"{path}.{key}", "reason": "unexpected_key", "expected": None, "actual": actual[key]})
+        return differences
+    if isinstance(expected, list):
+        if not isinstance(actual, list):
+            return [{"path": path, "reason": "type_mismatch", "expected": "array", "actual": value_type_name(actual)}]
+        if len(actual) != len(expected):
+            differences.append({"path": path, "reason": "length_mismatch", "expected": len(expected), "actual": len(actual)})
+        for index, (actual_value, expected_value) in enumerate(zip(actual, expected)):
+            differences.extend(_json_differences(actual_value, expected_value, f"{path}[{index}]"))
+        return differences
+    if not values_equal(expected, actual):
+        differences.append({"path": path, "reason": "value_mismatch", "expected": expected, "actual": actual})
+    return differences
+
+
+def _validate_schema_node(value: Any, schema: dict[str, Any], path: str = "$") -> list[dict[str, Any]]:
+    defects: list[dict[str, Any]] = []
+    expected_type = schema.get("type")
+    type_matches = {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "boolean": isinstance(value, bool),
+        "null": value is None,
+    }
+    if expected_type and not type_matches.get(str(expected_type), False):
+        return [{"path": path, "reason": "schema_type_mismatch", "expected": expected_type, "actual": value_type_name(value)}]
+    if isinstance(value, dict):
+        for key in schema.get("required", []):
+            if key not in value:
+                defects.append({"path": f"{path}.{key}", "reason": "schema_required_missing", "expected": "present", "actual": None})
+        for key, child_schema in schema.get("properties", {}).items():
+            if key in value and isinstance(child_schema, dict):
+                defects.extend(_validate_schema_node(value[key], child_schema, f"{path}.{key}"))
+    if isinstance(value, list) and isinstance(schema.get("items"), dict):
+        for index, item in enumerate(value):
+            defects.extend(_validate_schema_node(item, schema["items"], f"{path}[{index}]"))
+    return defects
+
+
+def _parse_file_path(spec: str, option: str) -> tuple[str, str]:
+    artifact, sep, path = spec.partition(":")
+    if not sep or not artifact or not path:
+        raise ValueError(f"{option} must use FILE:PATH format: {spec}")
+    return artifact, path
+
+
+def _parse_invariant(spec: str) -> tuple[str, str, str, Any]:
+    match = re.fullmatch(r"([^:]+):(.+?)(==|!=|>=|<=|>|<)(.+)", spec)
+    if not match:
+        raise ValueError(f"invariant must use FILE:PATH<OP>VALUE format: {spec}")
+    return match.group(1), match.group(2), match.group(3), parse_expected_value(match.group(4))
+
+
+def _compare_invariant(actual: Any, operator: str, expected: Any) -> bool:
+    if operator == "==":
+        return values_equal(expected, actual)
+    if operator == "!=":
+        return not values_equal(expected, actual)
+    if isinstance(actual, bool) or isinstance(expected, bool):
+        return False
+    if not isinstance(actual, (int, float)) or not isinstance(expected, (int, float)):
+        return False
+    return {">": actual > expected, ">=": actual >= expected, "<": actual < expected, "<=": actual <= expected}[operator]
+
+
+def validate_domain_contract(
+    run_dir: Path,
+    result_status_specs: list[str],
+    result_pass_value: Any,
+    compare_specs: list[str],
+    required_specs: list[str],
+    invariant_specs: list[str],
+    schema_files: list[str],
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    defects: list[dict[str, Any]] = []
+
+    def record(kind: str, artifact: str, path: str, passed: bool, **details: Any) -> None:
+        item = {"kind": kind, "artifact": artifact, "path": path, "status": "passed" if passed else "failed", **details}
+        checks.append(item)
+        if not passed:
+            defects.append(item)
+
+    for spec in result_status_specs:
+        try:
+            artifact, path = _parse_file_path(spec, "result-status")
+            payload = _load_worktree_json(run_dir, artifact)
+            found, actual = read_dot_path(payload, path)
+            record("result_status", artifact, path, found and values_equal(result_pass_value, actual), expected=result_pass_value, actual=actual, reason="" if found else "path_missing")
+        except Exception as exc:  # noqa: BLE001
+            record("result_status", spec.partition(":")[0], spec.partition(":")[2], False, expected=result_pass_value, actual=None, reason=str(exc))
+
+    for spec in compare_specs:
+        actual_file, sep, expected_file = spec.partition(":")
+        try:
+            if not sep or not actual_file or not expected_file:
+                raise ValueError(f"compare-json must use ACTUAL:EXPECTED format: {spec}")
+            differences = _json_differences(_load_worktree_json(run_dir, actual_file), _load_worktree_json(run_dir, expected_file))
+            record("json_comparison", actual_file, "$", not differences, expected=expected_file, actual=actual_file, differences=differences[:100])
+        except Exception as exc:  # noqa: BLE001
+            record("json_comparison", actual_file, "$", False, expected=expected_file, actual=actual_file, reason=str(exc))
+
+    for spec in required_specs:
+        try:
+            artifact, path = _parse_file_path(spec, "require-json-path")
+            found, actual = read_dot_path(_load_worktree_json(run_dir, artifact), path)
+            record("required_path", artifact, path, found, expected="present", actual=actual, reason="" if found else "path_missing")
+        except Exception as exc:  # noqa: BLE001
+            record("required_path", spec.partition(":")[0], spec.partition(":")[2], False, expected="present", actual=None, reason=str(exc))
+
+    for spec in invariant_specs:
+        try:
+            artifact, path, operator, expected = _parse_invariant(spec)
+            found, actual = read_dot_path(_load_worktree_json(run_dir, artifact), path)
+            record("invariant", artifact, path, found and _compare_invariant(actual, operator, expected), expected={"operator": operator, "value": expected}, actual=actual, reason="" if found else "path_missing")
+        except Exception as exc:  # noqa: BLE001
+            record("invariant", spec.partition(":")[0], "", False, expected=spec, actual=None, reason=str(exc))
+
+    for schema_file in schema_files:
+        try:
+            schema_payload = json.loads(Path(schema_file).resolve().read_text(encoding="utf-8"))
+            mappings = schema_payload.get("artifacts") if isinstance(schema_payload, dict) else None
+            if not isinstance(mappings, dict):
+                artifact = schema_payload.get("artifact") if isinstance(schema_payload, dict) else None
+                schema = schema_payload.get("schema") if isinstance(schema_payload, dict) else None
+                mappings = {artifact: schema} if artifact and isinstance(schema, dict) else {}
+            if not mappings:
+                continue
+            for artifact, schema in mappings.items():
+                schema_defects = _validate_schema_node(_load_worktree_json(run_dir, artifact), schema)
+                record("schema", artifact, "$", not schema_defects, expected=schema_file, actual=artifact, defects=schema_defects[:100])
+        except Exception as exc:  # noqa: BLE001
+            record("schema", schema_file, "$", False, expected="valid artifact schema mapping", actual=None, reason=str(exc))
+
+    enabled = bool(result_status_specs or compare_specs or required_specs or invariant_specs or any(item["kind"] == "schema" for item in checks))
+    passed_count = sum(1 for item in checks if item["status"] == "passed")
+    return {
+        "enabled": enabled,
+        "status": ("pass" if not defects else "fail") if enabled else "not_configured",
+        "score": (passed_count / len(checks)) if checks else None,
+        "checks": checks,
+        "defects": defects,
+        "validator_source": "runner_owned",
+    }
+
+
 def value_type_name(value: Any) -> str:
     if value is None:
         return "null"
@@ -626,6 +802,7 @@ def build_artifacts(
     transport_attempts: list[dict[str, Any]] | None = None,
     artifact_provenance: dict[str, dict[str, Any]] | None = None,
     derived_artifact_failures: list[str] | None = None,
+    domain_verdict: dict[str, Any] | None = None,
     execution_strategy: str = "single",
     stage_count: int = 1,
 ) -> dict[str, Any]:
@@ -678,6 +855,8 @@ def build_artifacts(
     write_json(results_dir / "job-001.action_log.json", {"run_id": run_id, "actions": action_log, "error": error})
     write_json(ai_dir / "artifact_provenance.json", artifact_provenance or {})
     write_json(ai_dir / "transport_attempts.json", {"attempts": transport_attempts or []})
+    domain_verdict = domain_verdict or {"enabled": False, "status": "not_configured", "score": None, "checks": [], "defects": [], "validator_source": "runner_owned"}
+    write_json(ai_dir / "domain_verdict.json", domain_verdict)
     meeting = {
         "run_id": run_id,
         "meeting_status": "MEETING_READY",
@@ -719,6 +898,7 @@ def build_artifacts(
                 "expected_artifacts_present": not missing_expected_artifacts,
                 "semantic_expectations_passed": not semantic_failed,
                 "derived_artifact_provenance_passed": not (derived_artifact_failures or []),
+                "domain_verdict_passed": not domain_verdict.get("enabled") or domain_verdict.get("status") == "pass",
             },
             "expected_artifacts": expected_artifacts,
             "missing_expected_artifacts": missing_expected_artifacts,
@@ -727,6 +907,7 @@ def build_artifacts(
             "schema_context": schema_context,
             "derived_artifact_failures": derived_artifact_failures or [],
             "artifact_provenance": artifact_provenance or {},
+            "domain_verdict": domain_verdict,
         }
     }
     write_json(ai_dir / "artifact_verify_report.json", artifact)
@@ -768,6 +949,10 @@ def build_artifacts(
             "stage_count": stage_count,
             "transport_contract_failure_count": sum(1 for item in (transport_attempts or []) if item.get("contract_status") == "failed"),
             "derived_artifact_failure_count": len(derived_artifact_failures or []),
+            "domain_verdict_enabled": bool(domain_verdict.get("enabled")),
+            "domain_verdict_status": domain_verdict.get("status", "not_configured"),
+            "domain_verdict_score": domain_verdict.get("score"),
+            "domain_defect_count": len(domain_verdict.get("defects", [])),
         },
         "overall_status": "pass" if status == "SUCCESS" else "fail",
     }
@@ -787,6 +972,11 @@ def main() -> int:
     parser.add_argument("--allowed-commands", default=os.environ.get("LOCAL_ACTION_ALLOWED_COMMANDS", ",".join(sorted(DEFAULT_ALLOWED_COMMANDS))))
     parser.add_argument("--expected-artifact", action="append", default=[])
     parser.add_argument("--expect-json-value", action="append", default=[])
+    parser.add_argument("--result-status", action="append", default=[], help="Runner-owned domain status as FILE:PATH")
+    parser.add_argument("--result-pass-value", default="pass", help="JSON value accepted by --result-status")
+    parser.add_argument("--compare-json", action="append", default=[], help="Deep compare worktree JSON as ACTUAL:EXPECTED")
+    parser.add_argument("--require-json-path", action="append", default=[], help="Require worktree JSON path as FILE:PATH")
+    parser.add_argument("--invariant", action="append", default=[], help="Restricted invariant as FILE:PATH<OP>JSON_VALUE")
     parser.add_argument("--seed-file", action="append", default=[])
     parser.add_argument("--schema-file", action="append", default=[])
     parser.add_argument("--max-repair-rounds", type=int, default=int(os.environ.get("LOCAL_ACTION_MAX_REPAIR_ROUNDS", "3")))
@@ -820,6 +1010,7 @@ def main() -> int:
     transport_attempts: list[dict[str, Any]] = []
     artifact_provenance: dict[str, dict[str, Any]] = {}
     derived_artifact_failures: list[str] = []
+    domain_verdict: dict[str, Any] = {"enabled": False, "status": "not_configured", "score": None, "checks": [], "defects": [], "validator_source": "runner_owned"}
     attempt = 0
     repair_rounds_used = 0
     execution_strategy = args.execution_strategy
@@ -834,6 +1025,8 @@ def main() -> int:
         stage_succeeded = False
         stage_attempt_limit = 1 if args.manifest_file else max(1, args.max_repair_rounds + 1)
         for stage_attempt in range(1, stage_attempt_limit + 1):
+            if stage_attempt > 1 and repair_rounds_used >= args.max_repair_rounds:
+                break
             attempt += 1
             if stage_attempt > 1:
                 repair_rounds_used += 1
@@ -865,6 +1058,23 @@ def main() -> int:
                 missing_stage = validate_expected_artifacts(run_dir, stage_expected)
                 if missing_stage:
                     raise ActionExecutionError(f"missing stage artifacts: {', '.join(missing_stage)}", action_log, generated_files, final_summary)
+                stage_derived = [item for item in args.derived_artifact if item in stage_expected]
+                stage_provenance_failures = validate_derived_artifacts(stage_derived, artifact_provenance)
+                if stage_provenance_failures:
+                    derived_artifact_failures = stage_provenance_failures
+                    failure_category = "artifact_provenance_failed"
+                    generated_files = [item for item in generated_files if item not in stage_provenance_failures]
+                    for item in stage_provenance_failures:
+                        artifact_provenance.pop(item, None)
+                        target = ensure_within(run_dir / "worktree", item)
+                        if target.exists() and target.is_file():
+                            target.unlink()
+                    raise ActionExecutionError(
+                        "derived artifacts in this stage lack run_command provenance: " + ", ".join(stage_provenance_failures),
+                        action_log,
+                        generated_files,
+                        final_summary,
+                    )
                 if stage_number == len(stages):
                     semantic_results = validate_json_expectations(run_dir, args.expect_json_value)
                     semantic_failures = [item for item in semantic_results if item.get("status") == "failed"]
@@ -874,7 +1084,25 @@ def main() -> int:
                     if derived_artifact_failures:
                         failure_category = "artifact_provenance_failed"
                         raise ActionExecutionError("derived artifacts lack run_command provenance: " + ", ".join(derived_artifact_failures), action_log, generated_files, final_summary)
+                    domain_verdict = validate_domain_contract(
+                        run_dir,
+                        args.result_status,
+                        parse_expected_value(args.result_pass_value),
+                        args.compare_json,
+                        args.require_json_path,
+                        args.invariant,
+                        args.schema_file,
+                    )
+                    if domain_verdict["enabled"] and domain_verdict["status"] != "pass":
+                        failure_category = "domain_verdict_failed"
+                        raise ActionExecutionError(
+                            "runner-owned domain verdict failed: " + json.dumps(domain_verdict["defects"], ensure_ascii=False),
+                            action_log,
+                            generated_files,
+                            final_summary,
+                        )
                 stage_succeeded = True
+                derived_artifact_failures = []
                 error = ""
                 break
             except ManifestTransportError as exc:
@@ -902,6 +1130,13 @@ def main() -> int:
             missing_expected_artifacts = validate_expected_artifacts(run_dir, stage_expected)
             semantic_results = validate_json_expectations(run_dir, args.expect_json_value) if stage_number == len(stages) else []
             repair_feedback = build_repair_feedback(error, action_log[-8:], generated_files, stage_expected, missing_expected_artifacts, semantic_results, schema_context)
+            if derived_artifact_failures:
+                repair_feedback += (
+                    "\nfailed_derived_artifacts: " + json.dumps(derived_artifact_failures) +
+                    "\nrepair_instruction: Regenerate only these stage-owned derived artifacts through an allowlisted run_command. Do not rewrite completed artifacts from other stages."
+                )
+            if domain_verdict.get("defects"):
+                repair_feedback += "\nrunner_owned_domain_defects: " + json.dumps(domain_verdict["defects"], ensure_ascii=False)[:2400]
             if stage_attempt < stage_attempt_limit and failure_category == "transport_resource_exhausted":
                 time.sleep(min(2**stage_attempt, 8))
         if not stage_succeeded:
@@ -936,6 +1171,7 @@ def main() -> int:
         transport_attempts=transport_attempts,
         artifact_provenance=artifact_provenance,
         derived_artifact_failures=derived_artifact_failures,
+        domain_verdict=domain_verdict,
         execution_strategy=execution_strategy,
         stage_count=len(stages),
     )

@@ -109,12 +109,18 @@ def _severity_from_alert_type(alert_type: str) -> str:
     return "green"
 
 
-def _build_alerts(report: dict[str, Any], watchdog: dict[str, Any] | None = None, artifact_verify: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def _build_alerts(
+    report: dict[str, Any],
+    watchdog: dict[str, Any] | None = None,
+    artifact_verify: dict[str, Any] | None = None,
+    domain_verdict: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     kpis = report.get("kpis", {})
     failure_counts = kpis.get("failure_family_counts", {})
     alerts: list[dict[str, Any]] = []
     watchdog = watchdog or {}
     artifact_verify = artifact_verify or {}
+    domain_verdict = domain_verdict or {}
     if str(report.get("overall_status", "")).lower() == "fail":
         alerts.append({"type": "run_failed", "severity": "red", "title": "Run Failed", "detail": report.get("error") or "The run did not satisfy its execution or verification contract."})
     if str(watchdog.get("watchdog_status", "")).lower() == "escalated":
@@ -126,6 +132,17 @@ def _build_alerts(report: dict[str, Any], watchdog: dict[str, Any] | None = None
                 "severity": "red",
                 "title": "Package Integrity Failed",
                 "detail": "Runtime, spec, or verifier files do not match one release. Fix package integrity before rerunning agents.",
+            }
+        )
+    if domain_verdict.get("enabled") and domain_verdict.get("status") != "pass":
+        first_defect = (domain_verdict.get("defects") or [{}])[0]
+        location = ":".join(filter(None, [str(first_defect.get("artifact", "")), str(first_defect.get("path", ""))]))
+        alerts.append(
+            {
+                "type": "domain_verdict_failed",
+                "severity": "red",
+                "title": "Domain Result Failed",
+                "detail": f"{location or 'Domain contract'}: {first_defect.get('reason') or first_defect.get('kind') or 'runner-owned validation failed'}",
             }
         )
 
@@ -178,7 +195,7 @@ def _build_alerts(report: dict[str, Any], watchdog: dict[str, Any] | None = None
             }
         )
 
-    if not alerts and str(report.get("overall_status", "unknown")).lower() == "pass":
+    if not alerts and str(report.get("overall_status", "unknown")).lower() == "pass" and domain_verdict.get("status") != "fail":
         alerts.append(
             {
                 "type": "healthy",
@@ -687,6 +704,7 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     token_ledger = _load_json(ai_dir / "agent_token_ledger.json") if (ai_dir / "agent_token_ledger.json").exists() else {}
     package_preflight = _load_json(ai_dir / "package_preflight_report.json") if (ai_dir / "package_preflight_report.json").exists() else {}
     watchdog = _load_json(ai_dir / "watchdog_report.json") if (ai_dir / "watchdog_report.json").exists() else {}
+    domain_verdict = _load_json(ai_dir / "domain_verdict.json") if (ai_dir / "domain_verdict.json").exists() else {}
     plan = _load_json(run_dir / "plan.json") if (run_dir / "plan.json").exists() else {}
     summary = _read_text(run_dir / "worktree" / "summary.md") if (run_dir / "worktree" / "summary.md").exists() else ""
 
@@ -720,7 +738,8 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     artifact_verify = report.get("kpis", {}).get("artifact_verify", {}).get("parsed", {})
     if not artifact_verify and (ai_dir / "artifact_verify_report.json").exists():
         artifact_verify = _load_json(ai_dir / "artifact_verify_report.json").get("parsed", {})
-    alerts = _build_alerts(report, watchdog, artifact_verify)
+    alerts = _build_alerts(report, watchdog, artifact_verify, domain_verdict)
+    effective_overall_status = "fail" if domain_verdict.get("enabled") and domain_verdict.get("status") != "pass" else report.get("overall_status", "unknown")
     normalized_claims = _normalize_claims(claim_ledger.get("claims", []))
 
     status_details = []
@@ -756,14 +775,15 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "semantic_expectations": artifact_verify.get("semantic_expectations", []),
         "semantic_expectations_passed": artifact_verify.get("semantic_expectations_passed"),
         "schema_context": artifact_verify.get("schema_context", {}),
+        "domain_verdict": domain_verdict,
         "accepted_count": report.get("kpis", {}).get("accepted_count", 0),
-        "overall_status": report.get("overall_status", "unknown"),
+        "overall_status": effective_overall_status,
     }
 
     current_status = {
         "run_id": run_dir.name,
         "spec_id": report.get("spec_id", ""),
-        "overall_status": report.get("overall_status", "unknown"),
+        "overall_status": effective_overall_status,
         "meeting_status": meeting.get("meeting_status", ""),
         "meeting_mode": meeting.get("meeting_mode", "deterministic"),
         "live_meeting_used": bool(meeting.get("live_meeting_used", False)),

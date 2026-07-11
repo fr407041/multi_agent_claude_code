@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 
 PACKAGE_SCHEMA_VERSION = 1
-RELEASE_ID = "2026.07.11-company.9"
+RELEASE_ID = "2026.07.11-company.10"
 MANIFEST_PATH = Path("release") / "ai_company_package_manifest.json"
 
 CANONICAL_ROLES = [
