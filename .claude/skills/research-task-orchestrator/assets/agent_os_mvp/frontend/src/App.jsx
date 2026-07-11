@@ -78,6 +78,13 @@ function formatTokens(value) {
   return String(numberValue);
 }
 
+function formatEvidenceRef(item) {
+  if (typeof item === "string") return item;
+  if (!item || typeof item !== "object") return "";
+  const path = item.path || item.file || item.source || "";
+  return path ? `${item.type || "file"}:${path}` : "";
+}
+
 function MetricTile({ label, value }) {
   return (
     <article className="metric-tile">
@@ -678,7 +685,7 @@ export default function App() {
               <article key={claim.claim_id || `${claim.task_id}-${index}`} className="evidence-card">
                 <strong>{claim.task_id || "claim"} / {claim.confidence || "unknown"} confidence</strong>
                 <p>{claim.claim}</p>
-                <p>Evidence: {(claim.evidence_refs || []).map((item) => `${item.type || "ref"}:${item.path || item}`).join(", ") || "missing"}</p>
+                <p>Evidence: {(claim.evidence_refs || []).map(formatEvidenceRef).filter(Boolean).join(", ") || "missing"}</p>
               </article>
             ))}
           </div>
@@ -738,7 +745,7 @@ export default function App() {
             <article key={claim.claim_id} className="detail-item">
               <strong>{claim.task_id} / {claim.confidence || "unknown"} confidence</strong>
               <p>{claim.claim}</p>
-              <p>Evidence refs: {(claim.evidence_refs || []).map((item) => `${item.type}:${item.path}`).join(", ") || "missing"}</p>
+              <p>Evidence refs: {(claim.evidence_refs || []).map(formatEvidenceRef).filter(Boolean).join(", ") || "missing"}</p>
               {claim.limitations?.length ? <p>Limitations: {claim.limitations.join("; ")}</p> : null}
               {claim.handoff_next ? <p>Handoff: {claim.handoff_next}</p> : null}
             </article>

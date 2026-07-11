@@ -6,13 +6,30 @@ import os
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from app.db import get_db, init_db
-from app.services.ai_company_monitor import _build_agent_state_board, _build_alerts, collect_ai_company_monitor, get_ai_company_run_detail
+from app.services.ai_company_monitor import _build_agent_state_board, _build_alerts, _normalize_claims, collect_ai_company_monitor, get_ai_company_run_detail
 
 
 class AiCompanyMonitorStateBoardTest(unittest.TestCase):
+    def test_failed_run_never_emits_healthy_alert(self) -> None:
+        alerts = _build_alerts(
+            {"overall_status": "fail", "error": "manifest truncated", "kpis": {}},
+            {"watchdog_status": "escalated", "last_action": "WATCHDOG_ESCALATION_REQUIRED"},
+            {"all_passed": False, "checks": {"executor_success": False}},
+        )
+        self.assertFalse(any(item["type"] == "healthy" for item in alerts))
+        self.assertTrue(any(item["type"] == "run_failed" and item["severity"] == "red" for item in alerts))
+
+    def test_claim_evidence_refs_are_normalized(self) -> None:
+        claims = _normalize_claims([{"claim": "ok", "evidence_refs": ["results/raw.txt", {"path": "worktree/out.json"}, {}]}])
+        self.assertEqual(claims[0]["evidence_refs"], [
+            {"type": "file", "path": "results/raw.txt"},
+            {"type": "file", "path": "worktree/out.json"},
+        ])
+
     def test_package_integrity_failure_is_not_reported_as_model_failure(self) -> None:
         alerts = _build_alerts(
             {
@@ -139,6 +156,27 @@ class AiCompanyMonitorStateBoardTest(unittest.TestCase):
 
 
 class AiCompanyMonitorSummaryTest(unittest.TestCase):
+    def test_sync_ignores_alias_directories_and_selects_newest_failed_run(self) -> None:
+        root = Path(self.tempdir.name) / "runs"
+        for name in ["latest", "live_mode"]:
+            (root / name).mkdir(parents=True)
+        for name, started_at, status in [
+            ("run-old-pass", "2026-07-11T01:00:00+00:00", "pass"),
+            ("run-new-fail", "2026-07-11T02:00:00+00:00", "fail"),
+        ]:
+            ai_dir = root / name / "ai_company"
+            ai_dir.mkdir(parents=True)
+            (ai_dir / "task_harness_report.json").write_text(json.dumps({
+                "spec_id": "action-test", "started_at": started_at, "overall_status": status,
+                "error": "failed" if status == "fail" else "", "kpis": {"artifact_score": 1.0 if status == "pass" else 0.0},
+            }), encoding="utf-8")
+        with get_db() as connection:
+            with patch("app.services.ai_company_monitor.get_results_root", return_value=root):
+                snapshot = collect_ai_company_monitor(connection)
+        self.assertEqual(snapshot["all_runs_summary"]["total_runs"], 2)
+        self.assertEqual(snapshot["selected_run_preview"]["run_id"], "run-new-fail")
+        self.assertEqual(snapshot["selected_run_preview"]["overall_status"], "fail")
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.tempdir.name, "agent_os_monitor_test.db")

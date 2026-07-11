@@ -20,6 +20,12 @@ SCRIPT = ROOT / "scripts" / "run_local_model_action_executor.py"
 
 
 class LocalModelActionExecutorTests(unittest.TestCase):
+    def test_truncated_task_output_has_specific_failure_category(self) -> None:
+        with self.assertRaises(executor.ManifestTransportError) as caught:
+            executor.extract_action_manifest_from_task_output('prefix\n{"actions":[{"type":"write_file","path":"x"')
+        self.assertEqual(caught.exception.category, "manifest_truncated")
+        self.assertIn('"actions"', caught.exception.raw_response)
+
     def test_provider_neutral_task_api_helpers(self) -> None:
         self.assertEqual(executor.extract_task_api_text({"result": {"content": "manifest"}}), "manifest")
         self.assertEqual(
@@ -93,6 +99,53 @@ class LocalModelActionExecutorTests(unittest.TestCase):
         self.assertIn("return_code=7", exec_log)
         self.assertIn("visible-out", exec_log)
         self.assertIn("visible-err", exec_log)
+
+    def test_staged_execution_generates_bounded_artifact_batches(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        responses = [
+            json.dumps({"actions": [
+                {"type": "write_file", "path": "worker.py", "content": "print('ok')\n"},
+                {"type": "write_file", "path": "output.json", "content": "{\"status\": \"pass\"}\n"},
+            ]}),
+            json.dumps({"actions": [
+                {"type": "write_file", "path": "dashboard.html", "content": "<h1>pass</h1>"},
+                {"type": "write_file", "path": "report.md", "content": "# Pass\n"},
+            ]}),
+        ]
+        with mock.patch.object(executor, "call_ccr_for_manifest", side_effect=responses):
+            with mock.patch.object(sys, "argv", [
+                "run_local_model_action_executor.py", "--task", "create four bounded artifacts",
+                "--out-root", str(root / "runs"), "--run-id", "run-staged",
+                "--expected-artifact", "worker.py", "--expected-artifact", "output.json",
+                "--expected-artifact", "report.md", "--expected-artifact", "dashboard.html",
+                "--execution-strategy", "auto", "--max-repair-rounds", "0",
+            ]):
+                code = executor.main()
+        self.assertEqual(code, 0)
+        report = json.loads((root / "runs" / "run-staged" / "ai_company" / "task_harness_report.json").read_text())
+        self.assertEqual(report["kpis"]["execution_strategy"], "staged")
+        self.assertEqual(report["kpis"]["stage_count"], 2)
+        self.assertEqual(report["kpis"]["attempt_count"], 2)
+
+    def test_static_derived_artifact_is_blocked(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        manifest = root / "manifest.json"
+        manifest.write_text(json.dumps({"actions": [
+            {"type": "write_file", "path": "kpi.json", "content": "{\"score\": 100}"},
+            {"type": "finish", "summary": "static", "artifacts": ["kpi.json"]},
+        ]}), encoding="utf-8")
+        proc = subprocess.run([
+            sys.executable, str(SCRIPT), "--task", "derive KPI", "--manifest-file", str(manifest),
+            "--expected-artifact", "kpi.json", "--derived-artifact", "kpi.json",
+            "--out-root", str(root / "runs"), "--run-id", "run-static-derived",
+        ], cwd=ROOT, text=True, capture_output=True, check=False)
+        self.assertNotEqual(proc.returncode, 0)
+        report = json.loads(proc.stdout)
+        self.assertEqual(report["kpis"]["failure_category"], "artifact_provenance_failed")
 
     def test_rejects_path_traversal(self) -> None:
         proc = self.run_executor({"actions": [{"type": "write_file", "path": "../escape.txt", "content": "bad"}]})

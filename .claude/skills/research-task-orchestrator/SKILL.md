@@ -27,6 +27,8 @@ The skill bundles the verified orchestration runtime and lightweight web dashboa
 - Record meeting output in structured JSON so stop hooks and KPI checks can validate it.
 - For live meetings, default to `AI_COMPANY_LIVE_MEETING_TRANSPORT=auto`. This invokes the installed Claude CLI and inherits its existing Router configuration without selecting a model endpoint.
 - For live action execution, prefer `AI_COMPANY_LIVE_TASK_URL`. It inherits the existing Claude/Router model configuration and must not require the skill to know the model name or model-service URL.
+- For action tasks with more than three expected artifacts, use staged execution. Keep each stage at two artifacts by default, preserve transport raw output, and treat process success without a complete action manifest as contract failure.
+- Mark KPI and report outputs as derived artifacts when their values must come from executed code. Do not accept direct model-written static metrics as verified results.
 - Keep `/run-task` for full worker tasks. Never treat it as a synchronous single meeting-turn API.
 - Accept live meeting success only when all required roles completed provider turns and `live_degraded=false`; deterministic fallback is protection, not live success.
 - Preserve each live turn's raw artifact, transport, duration, retry attempt, and token usage. Retry transient transport failures at most twice and malformed output at most once.

@@ -68,6 +68,39 @@ def _shorten(text: str, limit: int = 220) -> str:
     return compact[: limit - 3].rstrip() + "..."
 
 
+def _run_started_at(run_dir: Path, report: dict[str, Any]) -> str:
+    explicit = str(report.get("started_at") or "").strip()
+    if explicit:
+        return explicit
+    parsed = _parse_run_started_at(run_dir.name)
+    if parsed:
+        return parsed
+    candidates = [run_dir / "ai_company" / "task_harness_report.json", run_dir / "task.txt", run_dir]
+    existing = [path for path in candidates if path.exists()]
+    timestamp = max(path.stat().st_mtime for path in existing) if existing else run_dir.stat().st_mtime
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
+
+def _normalize_evidence_ref(value: Any) -> dict[str, str] | None:
+    if isinstance(value, str) and value.strip():
+        return {"type": "file", "path": value.strip()}
+    if isinstance(value, dict):
+        path = str(value.get("path") or value.get("file") or value.get("source") or "").strip()
+        if path:
+            return {"type": str(value.get("type") or "file"), "path": path}
+    return None
+
+
+def _normalize_claims(claims: list[Any]) -> list[dict[str, Any]]:
+    normalized = []
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            continue
+        refs = [item for raw in claim.get("evidence_refs", []) if (item := _normalize_evidence_ref(raw))]
+        normalized.append({**claim, "claim_id": claim.get("claim_id") or f"claim-{index + 1}", "evidence_refs": refs})
+    return normalized
+
+
 def _severity_from_alert_type(alert_type: str) -> str:
     if alert_type in {"overflow", "router_error", "replan_loop"}:
         return "red"
@@ -76,10 +109,16 @@ def _severity_from_alert_type(alert_type: str) -> str:
     return "green"
 
 
-def _build_alerts(report: dict[str, Any]) -> list[dict[str, Any]]:
+def _build_alerts(report: dict[str, Any], watchdog: dict[str, Any] | None = None, artifact_verify: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     kpis = report.get("kpis", {})
     failure_counts = kpis.get("failure_family_counts", {})
     alerts: list[dict[str, Any]] = []
+    watchdog = watchdog or {}
+    artifact_verify = artifact_verify or {}
+    if str(report.get("overall_status", "")).lower() == "fail":
+        alerts.append({"type": "run_failed", "severity": "red", "title": "Run Failed", "detail": report.get("error") or "The run did not satisfy its execution or verification contract."})
+    if str(watchdog.get("watchdog_status", "")).lower() == "escalated":
+        alerts.append({"type": "watchdog_escalated", "severity": "red", "title": "Watchdog Escalated", "detail": watchdog.get("last_action") or "Watchdog requires operator attention."})
     if kpis.get("package_integrity") not in {None, "", "pass"}:
         alerts.append(
             {
@@ -127,7 +166,7 @@ def _build_alerts(report: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
-    artifact = kpis.get("artifact_verify", {}).get("parsed", {})
+    artifact = kpis.get("artifact_verify", {}).get("parsed", {}) or artifact_verify
     if artifact and not artifact.get("all_passed", True):
         failed_checks = [key for key, value in artifact.get("checks", {}).items() if not value]
         alerts.append(
@@ -139,7 +178,7 @@ def _build_alerts(report: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
-    if not alerts:
+    if not alerts and str(report.get("overall_status", "unknown")).lower() == "pass":
         alerts.append(
             {
                 "type": "healthy",
@@ -681,7 +720,8 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     artifact_verify = report.get("kpis", {}).get("artifact_verify", {}).get("parsed", {})
     if not artifact_verify and (ai_dir / "artifact_verify_report.json").exists():
         artifact_verify = _load_json(ai_dir / "artifact_verify_report.json").get("parsed", {})
-    alerts = _build_alerts(report)
+    alerts = _build_alerts(report, watchdog, artifact_verify)
+    normalized_claims = _normalize_claims(claim_ledger.get("claims", []))
 
     status_details = []
     for item in status_records:
@@ -735,7 +775,7 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "package_integrity": package_preflight.get("package_integrity", report.get("kpis", {}).get("package_integrity", "unknown")),
         "release_id": package_preflight.get("release_id", report.get("kpis", {}).get("release_id", "")),
         "spec_contract_status": package_preflight.get("spec_contract_status", report.get("kpis", {}).get("spec_contract_status", "unknown")),
-        "started_at": _parse_run_started_at(run_dir.name),
+        "started_at": _run_started_at(run_dir, report),
         "goal": meeting.get("goal") or report.get("kpis", {}).get("goal", ""),
         "decision_summary": meeting.get("decision_summary", ""),
         "convergence_reason": meeting.get("convergence_reason", ""),
@@ -775,7 +815,7 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "downgrade_summary": report.get("kpis", {}).get("downgrade_summary", []),
         "claim_ledger": {
             "metrics": claim_ledger.get("metrics", {}),
-            "claims": claim_ledger.get("claims", [])[:50],
+            "claims": normalized_claims[:50],
         },
         "claim_ledger_metrics": claim_ledger.get("metrics", {}),
         "token_ledger": token_ledger,
@@ -824,7 +864,11 @@ def sync_ai_company_runs(connection: Connection) -> None:
     connection.execute("DELETE FROM ai_company_runs")
     if not results_root.exists():
         return
-    run_dirs = sorted([path for path in results_root.iterdir() if path.is_dir()], key=lambda item: item.name, reverse=True)
+    run_dirs = [
+        path
+        for path in results_root.iterdir()
+        if path.is_dir() and (path / "ai_company" / "task_harness_report.json").is_file()
+    ]
     synced_at = datetime.now(timezone.utc).isoformat()
     for run_dir in run_dirs:
         try:

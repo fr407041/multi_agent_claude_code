@@ -9,6 +9,7 @@ artifact shape the dashboard/watchdog already know how to read.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -28,6 +29,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_ROOT = ROOT / "results" / "ai_company_task_harness"
 ALLOWED_ACTIONS = {"write_file", "read_file", "run_command", "finish"}
 DEFAULT_ALLOWED_COMMANDS = {"python3", "python", "curl", "sed", "awk", "grep", "find", "mkdir", "cat", "head", "tail"}
+SOURCE_SUFFIXES = {".py", ".js", ".ts", ".sh", ".go", ".rs", ".java"}
+REPORT_SUFFIXES = {".md", ".html", ".htm"}
+_LAST_TRANSPORT_METADATA: dict[str, Any] = {}
 
 
 class ActionExecutionError(RuntimeError):
@@ -42,6 +46,14 @@ class ActionExecutionError(RuntimeError):
         self.action_log = action_log or []
         self.generated_files = generated_files or []
         self.final_summary = final_summary
+
+
+class ManifestTransportError(ValueError):
+    def __init__(self, message: str, category: str, raw_response: str, metadata: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.category = category
+        self.raw_response = raw_response
+        self.metadata = metadata or {}
 
 
 def now_iso() -> str:
@@ -104,8 +116,34 @@ def extract_action_manifest_from_task_output(text: str) -> str:
         if isinstance(candidate, dict) and isinstance(candidate.get("actions"), list):
             matches.append(candidate)
     if not matches:
-        raise ValueError("live task API output did not contain an action manifest")
+        looks_truncated = '"actions"' in text or text.count("{") > text.count("}") or text.rstrip().endswith(("{", "[", ","))
+        category = "manifest_truncated" if looks_truncated else "manifest_contract_invalid"
+        raise ManifestTransportError(
+            "live task API output did not contain a complete action manifest",
+            category,
+            text,
+        )
     return json.dumps(matches[-1], ensure_ascii=False)
+
+
+def _file_snapshot(root: Path) -> dict[str, str]:
+    snapshot: dict[str, str] = {}
+    for path in root.rglob("*"):
+        if path.is_file():
+            snapshot[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return snapshot
+
+
+def _artifact_batches(paths: list[str], limit: int, max_stages: int) -> list[list[str]]:
+    def priority(value: str) -> tuple[int, str]:
+        suffix = Path(value).suffix.lower()
+        return (0 if suffix in SOURCE_SUFFIXES else 2 if suffix in REPORT_SUFFIXES else 1, value)
+
+    ordered = sorted(dict.fromkeys(paths), key=priority)
+    batches = [ordered[index : index + limit] for index in range(0, len(ordered), limit)] or [[]]
+    if len(batches) > max_stages:
+        raise ValueError(f"staged execution requires {len(batches)} stages, above max_stages={max_stages}")
+    return batches
 
 
 def derive_task_status_url(task_url: str, run_id: str) -> str:
@@ -117,6 +155,7 @@ def derive_task_status_url(task_url: str, run_id: str) -> str:
 
 
 def call_live_task_api(prompt: str, timeout_sec: int) -> str:
+    global _LAST_TRANSPORT_METADATA
     url = os.environ.get("AI_COMPANY_LIVE_TASK_URL", "").strip()
     payload = {"task": prompt, "timeout_seconds": timeout_sec}
     req = urllib.request.Request(
@@ -130,9 +169,14 @@ def call_live_task_api(prompt: str, timeout_sec: int) -> str:
     text = extract_task_api_text(created)
     status = str(created.get("status", "")).lower()
     run_id = str(created.get("run_id", ""))
+    _LAST_TRANSPORT_METADATA = {"nested_run_id": run_id, "transport_status": status, "response_chars": len(text)}
     pending = {"queued", "running", "pending", "in_progress"}
     if text and status not in pending:
-        return extract_action_manifest_from_task_output(text)
+        try:
+            return extract_action_manifest_from_task_output(text)
+        except ManifestTransportError as exc:
+            exc.metadata.update(_LAST_TRANSPORT_METADATA)
+            raise
     if not run_id:
         raise RuntimeError("live task API returned no result_text and no run_id for polling")
     status_url = derive_task_status_url(url, run_id)
@@ -146,8 +190,13 @@ def call_live_task_api(prompt: str, timeout_sec: int) -> str:
             polled = json.loads(response.read().decode("utf-8", errors="ignore"))
         text = extract_task_api_text(polled)
         status = str(polled.get("status", status)).lower()
+        _LAST_TRANSPORT_METADATA = {"nested_run_id": run_id, "transport_status": status, "response_chars": len(text)}
         if text and status not in pending:
-            return extract_action_manifest_from_task_output(text)
+            try:
+                return extract_action_manifest_from_task_output(text)
+            except ManifestTransportError as exc:
+                exc.metadata.update(_LAST_TRANSPORT_METADATA)
+                raise
         if status in {"failed", "error", "timeout", "cancelled"}:
             raise RuntimeError(f"live task API run {run_id} ended with status {status}: {text[:500]}")
     raise TimeoutError(f"live task API run {run_id} did not finish before {timeout_sec}s")
@@ -213,7 +262,7 @@ def execute_manifest(
     run_dir: Path,
     allowed_commands: set[str],
     max_actions: int,
-) -> tuple[list[dict[str, Any]], list[str], str]:
+) -> tuple[list[dict[str, Any]], list[str], str, dict[str, dict[str, Any]]]:
     worktree = run_dir / "worktree"
     worktree.mkdir(parents=True, exist_ok=True)
     actions = manifest.get("actions")
@@ -223,6 +272,7 @@ def execute_manifest(
         raise ValueError(f"too many actions: {len(actions)} > {max_actions}")
     action_log: list[dict[str, Any]] = []
     generated_files: list[str] = []
+    provenance: dict[str, dict[str, Any]] = {}
     final_summary = ""
     for index, action in enumerate(actions, start=1):
         if not isinstance(action, dict):
@@ -238,6 +288,7 @@ def execute_manifest(
             target.write_text(content, encoding="utf-8")
             rel = str(target.relative_to(worktree).as_posix())
             generated_files.append(rel)
+            provenance[rel] = {"action_type": "write_file", "action_index": index}
             entry.update({"path": rel, "bytes": len(content.encode("utf-8")), "status": "ok"})
         elif action_type == "read_file":
             target = ensure_within(worktree, str(action.get("path") or ""))
@@ -252,7 +303,13 @@ def execute_manifest(
             if executable not in allowed_commands:
                 raise ValueError(f"command not allowlisted: {command[0]}")
             timeout_sec = int(action.get("timeout_sec") or 60)
+            before = _file_snapshot(worktree)
             proc = subprocess.run(command, cwd=worktree, text=True, capture_output=True, timeout=timeout_sec, check=False)
+            after = _file_snapshot(worktree)
+            changed_files = sorted(path for path, digest in after.items() if before.get(path) != digest)
+            for rel in changed_files:
+                generated_files.append(rel)
+                provenance[rel] = {"action_type": "run_command", "action_index": index, "command": command}
             entry.update(
                 {
                     "command": command,
@@ -261,6 +318,7 @@ def execute_manifest(
                     "stdout": proc.stdout[-4000:],
                     "stderr": proc.stderr[-4000:],
                     "status": "ok" if proc.returncode == 0 else "failed",
+                    "changed_files": changed_files,
                 }
             )
             if proc.returncode != 0:
@@ -288,7 +346,15 @@ def execute_manifest(
             entry.update({"summary": final_summary, "artifacts": artifacts, "status": "ok"})
         entry["finished_at"] = now_iso()
         action_log.append(entry)
-    return action_log, sorted(set(generated_files)), final_summary
+    return action_log, sorted(set(generated_files)), final_summary, provenance
+
+
+def validate_derived_artifacts(derived_artifacts: list[str], provenance: dict[str, dict[str, Any]]) -> list[str]:
+    return [
+        rel
+        for rel in derived_artifacts
+        if provenance.get(rel, {}).get("action_type") != "run_command"
+    ]
 
 
 def validate_expected_artifacts(run_dir: Path, expected_artifacts: list[str]) -> list[str]:
@@ -554,6 +620,14 @@ def build_artifacts(
     seeded_files: list[str] | None = None,
     semantic_results: list[dict[str, Any]] | None = None,
     schema_context: dict[str, Any] | None = None,
+    started_at: str = "",
+    finished_at: str = "",
+    failure_category: str = "",
+    transport_attempts: list[dict[str, Any]] | None = None,
+    artifact_provenance: dict[str, dict[str, Any]] | None = None,
+    derived_artifact_failures: list[str] | None = None,
+    execution_strategy: str = "single",
+    stage_count: int = 1,
 ) -> dict[str, Any]:
     ai_dir = run_dir / "ai_company"
     results_dir = run_dir / "results"
@@ -582,7 +656,7 @@ def build_artifacts(
         "actual_changed_files": generated_files,
         "actual_changed_count": len(generated_files),
         "pseudo_tool_call_detected": False,
-        "failure_family": "" if status == "SUCCESS" else "failed",
+        "failure_family": "" if status == "SUCCESS" else (failure_category or "failed"),
         "verification_note": "deterministic action manifest executed" if status == "SUCCESS" else error,
         "raw_file": str(raw_file),
         "exec_log_file": str(exec_log_file),
@@ -602,6 +676,8 @@ def build_artifacts(
     }
     write_json(results_dir / "job-001.status.json", status_payload)
     write_json(results_dir / "job-001.action_log.json", {"run_id": run_id, "actions": action_log, "error": error})
+    write_json(ai_dir / "artifact_provenance.json", artifact_provenance or {})
+    write_json(ai_dir / "transport_attempts.json", {"attempts": transport_attempts or []})
     meeting = {
         "run_id": run_id,
         "meeting_status": "MEETING_READY",
@@ -642,12 +718,15 @@ def build_artifacts(
                 "executor_success": status == "SUCCESS",
                 "expected_artifacts_present": not missing_expected_artifacts,
                 "semantic_expectations_passed": not semantic_failed,
+                "derived_artifact_provenance_passed": not (derived_artifact_failures or []),
             },
             "expected_artifacts": expected_artifacts,
             "missing_expected_artifacts": missing_expected_artifacts,
             "semantic_expectations": semantic_results,
             "semantic_expectations_passed": not semantic_failed,
             "schema_context": schema_context,
+            "derived_artifact_failures": derived_artifact_failures or [],
+            "artifact_provenance": artifact_provenance or {},
         }
     }
     write_json(ai_dir / "artifact_verify_report.json", artifact)
@@ -659,6 +738,8 @@ def build_artifacts(
         "mode": "live-action-executor",
         "run_id": run_id,
         "run_dir": str(run_dir),
+        "started_at": started_at,
+        "finished_at": finished_at,
         "task": task,
         "error": error,
         "kpis": {
@@ -682,6 +763,11 @@ def build_artifacts(
             "max_agent_turn_tokens": token_ledger.get("max_agent_turn_tokens", 0),
             "top_token_agent": token_ledger.get("top_token_agent", ""),
             "overflow_risk_agent_count": token_ledger.get("overflow_risk_agent_count", 0),
+            "failure_category": failure_category,
+            "execution_strategy": execution_strategy,
+            "stage_count": stage_count,
+            "transport_contract_failure_count": sum(1 for item in (transport_attempts or []) if item.get("contract_status") == "failed"),
+            "derived_artifact_failure_count": len(derived_artifact_failures or []),
         },
         "overall_status": "pass" if status == "SUCCESS" else "fail",
     }
@@ -704,8 +790,13 @@ def main() -> int:
     parser.add_argument("--seed-file", action="append", default=[])
     parser.add_argument("--schema-file", action="append", default=[])
     parser.add_argument("--max-repair-rounds", type=int, default=int(os.environ.get("LOCAL_ACTION_MAX_REPAIR_ROUNDS", "3")))
+    parser.add_argument("--execution-strategy", choices=["auto", "single", "staged"], default=os.environ.get("LOCAL_ACTION_EXECUTION_STRATEGY", "auto"))
+    parser.add_argument("--stage-artifact-limit", type=int, default=int(os.environ.get("LOCAL_ACTION_STAGE_ARTIFACT_LIMIT", "2")))
+    parser.add_argument("--max-stages", type=int, default=int(os.environ.get("LOCAL_ACTION_MAX_STAGES", "4")))
+    parser.add_argument("--derived-artifact", action="append", default=[])
     args = parser.parse_args()
 
+    started_at = now_iso()
     task = args.task or (read_text(Path(args.task_file)) if args.task_file else "")
     if not task:
         print("task or task-file is required", file=sys.stderr)
@@ -725,63 +816,104 @@ def main() -> int:
     missing_expected_artifacts: list[str] = []
     semantic_results: list[dict[str, Any]] = []
     status = "FAILED"
-    repair_feedback = ""
-    max_attempts = 1 if args.manifest_file else max(1, args.max_repair_rounds + 1)
-    for attempt in range(1, max_attempts + 1):
-        try:
-            raw_manifest = read_text(Path(args.manifest_file)) if args.manifest_file else call_ccr_for_manifest(task, args.timeout_sec, repair_feedback)
-            manifest_path = run_dir / "results" / f"job-001.manifest.round-{attempt}.raw.txt"
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(raw_manifest, encoding="utf-8")
-            if attempt == 1:
-                (run_dir / "results" / "job-001.manifest.raw.txt").write_text(raw_manifest, encoding="utf-8")
-            manifest = parse_json_payload(raw_manifest)
-            round_log, round_generated, final_summary = execute_manifest(manifest, run_dir, allowed_commands, args.max_actions)
-            action_log.extend(round_log)
-            generated_files = sorted(set([*generated_files, *round_generated]))
-            missing_expected_artifacts = validate_expected_artifacts(run_dir, args.expected_artifact)
-            if missing_expected_artifacts:
-                raise ActionExecutionError(
-                    f"missing expected artifacts: {', '.join(missing_expected_artifacts)}",
-                    action_log,
-                    generated_files,
-                    final_summary,
+    failure_category = ""
+    transport_attempts: list[dict[str, Any]] = []
+    artifact_provenance: dict[str, dict[str, Any]] = {}
+    derived_artifact_failures: list[str] = []
+    attempt = 0
+    repair_rounds_used = 0
+    execution_strategy = args.execution_strategy
+    if args.manifest_file:
+        execution_strategy = "single"
+    elif execution_strategy == "auto":
+        execution_strategy = "staged" if len(args.expected_artifact) > 3 or args.max_actions > 8 else "single"
+    stages = _artifact_batches(args.expected_artifact, max(1, args.stage_artifact_limit), args.max_stages) if execution_strategy == "staged" else [args.expected_artifact]
+
+    for stage_number, stage_expected in enumerate(stages, start=1):
+        repair_feedback = ""
+        stage_succeeded = False
+        stage_attempt_limit = 1 if args.manifest_file else max(1, args.max_repair_rounds + 1)
+        for stage_attempt in range(1, stage_attempt_limit + 1):
+            attempt += 1
+            if stage_attempt > 1:
+                repair_rounds_used += 1
+            stage_task = task
+            if execution_strategy == "staged":
+                stage_task += (
+                    f"\n\nBOUNDED STAGE {stage_number}/{len(stages)}. Produce only these artifacts in this stage: "
+                    f"{stage_expected}. Already completed artifacts: {generated_files}. "
+                    "Do not regenerate completed files. Keep this stage to at most three actions."
                 )
-            semantic_results = validate_json_expectations(run_dir, args.expect_json_value)
-            semantic_failures = [item for item in semantic_results if item.get("status") == "failed"]
-            if semantic_failures:
-                raise ActionExecutionError(
-                    "semantic expectations failed: " + json.dumps(semantic_failures, ensure_ascii=False),
-                    action_log,
-                    generated_files,
-                    final_summary,
-                )
-            generated_files = sorted(set([*generated_files, *args.expected_artifact]))
-            status = "SUCCESS"
-            error = ""
+            try:
+                raw_manifest = read_text(Path(args.manifest_file)) if args.manifest_file else call_ccr_for_manifest(stage_task, args.timeout_sec, repair_feedback)
+                transport_meta = {**_LAST_TRANSPORT_METADATA, "attempt": attempt, "stage": stage_number, "contract_status": "passed", "response_chars": len(raw_manifest)}
+                transport_attempts.append(transport_meta)
+                manifest_path = run_dir / "results" / f"job-001.stage-{stage_number}.attempt-{stage_attempt}.manifest.raw.txt"
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                manifest_path.write_text(raw_manifest, encoding="utf-8")
+                if attempt == 1:
+                    (run_dir / "results" / "job-001.manifest.raw.txt").write_text(raw_manifest, encoding="utf-8")
+                manifest = parse_json_payload(raw_manifest)
+                round_log, round_generated, stage_summary, round_provenance = execute_manifest(manifest, run_dir, allowed_commands, args.max_actions)
+                for item in round_log:
+                    item["stage"] = stage_number
+                    item["stage_attempt"] = stage_attempt
+                action_log.extend(round_log)
+                generated_files = sorted(set([*generated_files, *round_generated]))
+                artifact_provenance.update(round_provenance)
+                final_summary = stage_summary or final_summary
+                missing_stage = validate_expected_artifacts(run_dir, stage_expected)
+                if missing_stage:
+                    raise ActionExecutionError(f"missing stage artifacts: {', '.join(missing_stage)}", action_log, generated_files, final_summary)
+                if stage_number == len(stages):
+                    semantic_results = validate_json_expectations(run_dir, args.expect_json_value)
+                    semantic_failures = [item for item in semantic_results if item.get("status") == "failed"]
+                    if semantic_failures:
+                        raise ActionExecutionError("semantic expectations failed: " + json.dumps(semantic_failures, ensure_ascii=False), action_log, generated_files, final_summary)
+                    derived_artifact_failures = validate_derived_artifacts(args.derived_artifact, artifact_provenance)
+                    if derived_artifact_failures:
+                        failure_category = "artifact_provenance_failed"
+                        raise ActionExecutionError("derived artifacts lack run_command provenance: " + ", ".join(derived_artifact_failures), action_log, generated_files, final_summary)
+                stage_succeeded = True
+                error = ""
+                break
+            except ManifestTransportError as exc:
+                failure_category = exc.category
+                error = str(exc)
+                raw_path = run_dir / "results" / f"job-001.stage-{stage_number}.attempt-{stage_attempt}.transport.raw.txt"
+                raw_path.parent.mkdir(parents=True, exist_ok=True)
+                raw_path.write_text(exc.raw_response, encoding="utf-8")
+                transport_attempts.append({**exc.metadata, "attempt": attempt, "stage": stage_number, "contract_status": "failed", "failure_category": exc.category, "raw_file": str(raw_path)})
+            except ActionExecutionError as exc:
+                if exc.action_log:
+                    if len(exc.action_log) >= len(action_log):
+                        action_log = exc.action_log
+                    else:
+                        action_log.extend(exc.action_log)
+                generated_files = sorted(set([*generated_files, *exc.generated_files]))
+                final_summary = exc.final_summary or final_summary
+                error = str(exc)
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+                if isinstance(exc, OSError) and getattr(exc, "winerror", None) == 10055:
+                    failure_category = "transport_resource_exhausted"
+                elif "WinError 10055" in error:
+                    failure_category = "transport_resource_exhausted"
+            missing_expected_artifacts = validate_expected_artifacts(run_dir, stage_expected)
+            semantic_results = validate_json_expectations(run_dir, args.expect_json_value) if stage_number == len(stages) else []
+            repair_feedback = build_repair_feedback(error, action_log[-8:], generated_files, stage_expected, missing_expected_artifacts, semantic_results, schema_context)
+            if stage_attempt < stage_attempt_limit and failure_category == "transport_resource_exhausted":
+                time.sleep(min(2**stage_attempt, 8))
+        if not stage_succeeded:
             break
-        except ActionExecutionError as exc:
-            if exc.action_log:
-                if len(exc.action_log) >= len(action_log):
-                    action_log = exc.action_log
-                else:
-                    action_log.extend(exc.action_log)
-            generated_files = sorted(set([*generated_files, *exc.generated_files]))
-            final_summary = exc.final_summary or final_summary
-            error = str(exc)
-        except Exception as exc:  # noqa: BLE001
-            error = str(exc)
-        missing_expected_artifacts = validate_expected_artifacts(run_dir, args.expected_artifact)
-        semantic_results = validate_json_expectations(run_dir, args.expect_json_value)
-        repair_feedback = build_repair_feedback(
-            error,
-            action_log,
-            generated_files,
-            args.expected_artifact,
-            missing_expected_artifacts,
-            semantic_results,
-            schema_context,
-        )
+
+    missing_expected_artifacts = validate_expected_artifacts(run_dir, args.expected_artifact)
+    if not error and not missing_expected_artifacts and len(stages) > 0:
+        generated_files = sorted(set([*generated_files, *args.expected_artifact]))
+        status = "SUCCESS"
+        failure_category = ""
+    elif not failure_category:
+        failure_category = "failed"
     report = build_artifacts(
         run_dir,
         run_id,
@@ -792,12 +924,20 @@ def main() -> int:
         final_summary,
         error,
         attempt_count=attempt,
-        repair_rounds_used=max(0, attempt - 1),
+        repair_rounds_used=repair_rounds_used,
         expected_artifacts=args.expected_artifact,
         missing_expected_artifacts=missing_expected_artifacts,
         seeded_files=seeded_files,
         semantic_results=semantic_results,
         schema_context=schema_context,
+        started_at=started_at,
+        finished_at=now_iso(),
+        failure_category=failure_category,
+        transport_attempts=transport_attempts,
+        artifact_provenance=artifact_provenance,
+        derived_artifact_failures=derived_artifact_failures,
+        execution_strategy=execution_strategy,
+        stage_count=len(stages),
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if status == "SUCCESS" else 1

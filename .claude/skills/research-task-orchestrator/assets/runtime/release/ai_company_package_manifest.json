@@ -1,10 +1,10 @@
 {
   "package_schema_version": 1,
-  "release_id": "2026.07.11-company.8",
+  "release_id": "2026.07.11-company.9",
   "runtime_files": [
     {
       "path": "scripts/package_contract.py",
-      "sha256": "48960b3fbe8f5a544130deb3c30f9463a2cfc0e9ac5a2b2ab4a01b96a7fe5474"
+      "sha256": "f8f6cb461928fd5905a86b9c14bbfbd9d68bfa25e9d65bd9225cbe88728350e3"
     },
     {
       "path": "scripts/validate_ai_company_spec.py",
@@ -60,7 +60,7 @@
     },
     {
       "path": "scripts/run_local_model_action_executor.py",
-      "sha256": "00b9bdcd97b6816a51d2b42f5681f92c0f9aafd23c368964ec87fed73341e122"
+      "sha256": "95e0d7d9f0f902669c2d0530fc5049b07aeca0441e5c56db64da70ac7aa3e1e9"
     },
     {
       "path": "scripts/prepare_common_research_case.py",
@@ -210,7 +210,7 @@
   "skill_files": [
     {
       "path": "SKILL.md",
-      "sha256": "0586635707698807a3759e21fa79e8d4c6eeda497545e5309b3836c2c7828006"
+      "sha256": "e839e12de32a4c407f24cb0d5e365ff4951d560db5e78c35cfe15ab51f4c462d"
     },
     {
       "path": "agents/openai.yaml",
@@ -246,7 +246,7 @@
     },
     {
       "path": "assets/agent_os_mvp/backend/app/services/ai_company_monitor.py",
-      "sha256": "842e5ae51d1c11b3279dbdbe014b345056b60fb9bce69b9e70199d8725b93a14"
+      "sha256": "b71fcd141b6ed1d8448678eda6084a1161ef54c06d4aac51af03a86a297ea8b8"
     },
     {
       "path": "assets/agent_os_mvp/backend/requirements.txt",
@@ -262,7 +262,7 @@
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/App.jsx",
-      "sha256": "f8ae0678fa786738d4477fbd709ffe44a0b13f457ccfede5e9a7bb74264994ca"
+      "sha256": "b42f2ce2db15e6137a3c905324b1385cd828d10602b4e8c67b516862a6946a05"
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/styles.css",
