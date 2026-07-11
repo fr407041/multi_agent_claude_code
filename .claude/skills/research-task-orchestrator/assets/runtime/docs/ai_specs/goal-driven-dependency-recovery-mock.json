@@ -1,0 +1,41 @@
+{
+  "id": "goal-driven-dependency-recovery-mock",
+  "goal": "Repair an initially failed evidence producer and then synthesize only its affected descendant.",
+  "strategy": "Validate dependencies, repair the earliest failed producer, and selectively continue.",
+  "workflow": {"mode": "goal_driven", "max_jobs": 4, "max_replans": 2},
+  "verification": {"type": "generic_contract", "claim_evidence_required": true},
+  "recovery": {"strategy": "dependency_aware", "max_attempts_per_job": 2},
+  "agent_profile_mode": "strict",
+  "scope_copy_from": "tests/fixtures/goal_driven_supplied",
+  "goal_plan": {
+    "goal": "Repair an initially failed evidence producer and then synthesize only its affected descendant.",
+    "supplied_inputs": ["source.txt"],
+    "jobs": [
+      {
+        "id": "job-001", "title": "Produce evidence", "capability": "analyze",
+        "instruction": "Analyze source.txt and write evidence.json.", "depends_on": [],
+        "inputs": ["source.txt"], "outputs": ["evidence.json"], "files": ["evidence.json"],
+        "tools": ["read", "write"],
+        "acceptance_criteria": [{"type": "json_valid", "path": "evidence.json"}, {"type": "claim_evidence"}],
+        "evidence_requirements": ["claim_evidence"], "success_check": "Typed criteria pass.",
+        "owner_role": "research_agent", "agent_profile": "research_agent", "worker_template": "managed_single_file",
+        "require_change": true, "mock_status_sequence": ["FAILED", "SUCCESS"],
+        "fallback_plan": "Repair this producer before descendants execute."
+      },
+      {
+        "id": "job-002", "title": "Synthesize decision", "capability": "synthesize",
+        "instruction": "Read evidence.json and write summary.md.", "depends_on": ["job-001"],
+        "inputs": ["evidence.json"], "outputs": ["summary.md"], "files": ["summary.md"],
+        "tools": ["read", "write"],
+        "acceptance_criteria": [{"type": "artifact_exists", "path": "summary.md"}, {"type": "goal_answering"}],
+        "evidence_requirements": ["claim_evidence"], "success_check": "Typed criteria pass.",
+        "owner_role": "synthesis_agent", "agent_profile": "synthesis_agent", "worker_template": "managed_single_file",
+        "require_change": true,
+        "fallback_plan": "Remain blocked until evidence passes."
+      }
+    ]
+  },
+  "dag_validation_report": {"passed": true, "status": "pass", "job_count": 2, "topological_order": ["job-001", "job-002"], "errors": [], "model_calls_started": 0},
+  "jobs": [],
+  "expectations": {"meeting_status": "MEETING_READY", "loop_bounded": true, "max_execution_jobs_run": 4}
+}

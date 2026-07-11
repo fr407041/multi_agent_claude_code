@@ -642,10 +642,10 @@ def base_assignments(run_dir: Path) -> list[dict]:
                 "agent_profile": job.get("agent_profile") or owner_role,
                 "profile_mode": job.get("profile_mode", "auto"),
                 "scope": scope,
-                "depends_on": [],
-                "acceptance_criteria": [
-                    job.get("success_check", "Return a concise verified result."),
-                    "status.json must exist",
+                "depends_on": list(job.get("depends_on", [])),
+                "acceptance_criteria": list(job.get("acceptance_criteria", [])) or [
+                    {"type": "artifact_exists", "path": item}
+                    for item in job.get("files", [])
                 ],
                 "fallback_plan": "If the worker fails, overflows, or asks for broader scope, trigger narrower replan.",
                 "_source_instruction": instruction,

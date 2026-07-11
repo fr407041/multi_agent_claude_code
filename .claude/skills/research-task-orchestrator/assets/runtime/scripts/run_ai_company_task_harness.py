@@ -17,6 +17,7 @@ from run_ai_company_watchdog import write_heartbeat
 from agent_profile_resolver import build_profile_summary, resolve_run_profile_mode
 from package_contract import verify_package
 from validate_ai_company_spec import validate_spec
+from goal_driven_workflow import build_final_verdict, verify_job_contract
 
 
 DEFAULTS_PATH = ROOT / "configs" / "ai_company" / "task_harness.defaults.json"
@@ -162,6 +163,34 @@ def calculate_false_success_block_rate(kpis: dict[str, Any]) -> float:
     if accepted_count + false_success_blocked_count == 0:
         return 1.0
     return round(false_success_blocked_count / (accepted_count + false_success_blocked_count), 3)
+
+
+def build_generic_contract_report(run_dir: Path) -> dict[str, Any]:
+    plan = read_json(run_dir / "ai_company" / "goal_plan.json")
+    ledger_path = run_dir / "ai_company" / "subagent_claim_ledger.json"
+    ledger = read_json(ledger_path) if ledger_path.is_file() else {"claims": []}
+    claims_by_task: dict[str, list[dict[str, Any]]] = {}
+    for claim in ledger.get("claims", []):
+        claims_by_task.setdefault(str(claim.get("task_id", "")), []).append(claim)
+    job_reports = []
+    for job in plan.get("jobs", []):
+        status_path = run_dir / "results" / f"{job['id']}.status.json"
+        status = read_json(status_path) if status_path.is_file() else {"id": job["id"], "status": "MISSING"}
+        report = verify_job_contract(run_dir, job, status, claims_by_task.get(str(job["id"]), []))
+        verdict_path = run_dir / "ai_company" / "reviewer_verdicts.json"
+        verdicts = read_json(verdict_path).get("verdicts", []) if verdict_path.is_file() else []
+        verdict = next((item for item in verdicts if item.get("task_id") == job["id"]), {})
+        report["recommended_recovery_job"] = verdict.get("recommended_recovery_job", job["id"] if not report["all_passed"] else "")
+        job_reports.append(report)
+    dependency_path = run_dir / "ai_company" / "dependency_state.json"
+    dependency = read_json(dependency_path) if dependency_path.is_file() else {}
+    payload = {
+        "verification_type": "generic_contract", "all_passed": all(item["all_passed"] for item in job_reports),
+        "score": round(sum(1 for item in job_reports if item["all_passed"]) / len(job_reports), 3) if job_reports else 0.0,
+        "jobs": job_reports, "blocked_descendants": dependency.get("blocked_descendants", []),
+    }
+    write_json(run_dir / "ai_company" / "generic_contract_report.json", payload)
+    return payload
 
 
 def inject_job_context(run_dir: Path) -> None:
@@ -518,6 +547,8 @@ def main() -> None:
     if not preflight["passed"]:
         fail_preflight(preflight, out_root)
     spec = read_json(spec_path)
+    if (spec.get("workflow") or {}).get("mode") == "goal_driven" and not spec.get("jobs"):
+        spec["jobs"] = (spec.get("goal_plan") or {}).get("jobs", [])
     spec.setdefault("agent_profile_mode", defaults.get("agent_profile_mode", "auto"))
     resolved_mode, profile_reasons = resolve_run_profile_mode(spec)
     spec["agent_profile_mode"] = resolved_mode
@@ -549,7 +580,9 @@ def main() -> None:
 
     env = os.environ.copy()
     env["AI_COMPANY_MEETING_ROUND_LIMIT"] = str(defaults.get("meeting_round_limit", 3))
-    env["AI_COMPANY_MAX_REASSIGNMENTS_PER_RUN"] = str(defaults.get("max_reassignments_per_run", 1))
+    env["AI_COMPANY_MAX_REASSIGNMENTS_PER_RUN"] = str(
+        (spec.get("workflow") or {}).get("max_replans", defaults.get("max_reassignments_per_run", 1))
+    )
     env.setdefault("CLAUDE_CHILD_TIMEOUT_SEC", str(defaults.get("child_timeout_sec", 60)))
     env.setdefault("AI_COMPANY_CALL_TIMEOUT_SEC", str(defaults.get("call_timeout_sec", 90)))
     if defaults.get("claude_model_alias"):
@@ -646,6 +679,30 @@ def main() -> None:
     evaluation_report = build_sens_evaluation_report(run_dir, spec, kpis, reviewer, expectation_report)
     write_json(run_dir / "ai_company" / "sens_evaluation_report.json", evaluation_report)
 
+    workflow_mode = str((spec.get("workflow") or {}).get("mode", "fixed"))
+    final_verdict = None
+    if workflow_mode == "goal_driven":
+        generic_report = build_generic_contract_report(run_dir)
+        dag_report = read_json(run_dir / "ai_company" / "dag_validation_report.json")
+        recovery_path = run_dir / "ai_company" / "recovery_trace.jsonl"
+        recovery_events = [json.loads(line) for line in recovery_path.read_text(encoding="utf-8").splitlines() if line.strip()] if recovery_path.is_file() else []
+        final_verdict = build_final_verdict(run_dir.name, dag_report, generic_report, recovery_events)
+        if not expectation_report.get("all_passed", False):
+            final_verdict.update({
+                "overall_status": "fail",
+                "failure_category": final_verdict.get("failure_category") or "HARNESS_CONTRACT_FAILED",
+                "failed_checks": [key for key, passed in expectation_report.get("checks", {}).items() if not passed],
+                "next_action": "Repair harness safety or bounded-execution checks before delivery.",
+            })
+        write_json(run_dir / "ai_company" / "final_run_verdict.json", final_verdict)
+        kpis.update({
+            "workflow_mode": workflow_mode,
+            "generic_contract_score": generic_report.get("score", 0.0),
+            "generic_contract_passed": generic_report.get("all_passed", False),
+            "root_failed_job": final_verdict.get("root_failed_job", ""),
+            "blocked_descendant_count": len(final_verdict.get("blocked_descendants", [])),
+        })
+
     report = {
         "spec_id": spec["id"],
         "mode": args.mode,
@@ -656,7 +713,8 @@ def main() -> None:
         "kpis": kpis,
         "current_checkout_verification": checkout_verification,
         "expectations": expectation_report,
-        "overall_status": "pass" if expectation_report["all_passed"] else "fail",
+        "overall_status": final_verdict["overall_status"] if final_verdict is not None else ("pass" if expectation_report["all_passed"] else "fail"),
+        "final_verdict_file": "ai_company/final_run_verdict.json" if final_verdict is not None else "",
     }
     report_path = run_dir / "ai_company" / "task_harness_report.json"
     write_json(report_path, report)

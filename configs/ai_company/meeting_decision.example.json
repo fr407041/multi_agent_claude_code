@@ -1,0 +1,95 @@
+{
+  "meeting_id": "mtg-001",
+  "meeting_status": "MEETING_READY",
+  "goal": "Assess a bounded API fix and dispatch execution plus review tasks without discussing the whole repo.",
+  "constraints": [
+    "single task scope should not exceed 3 files",
+    "do not send full repo context to a child worker",
+    "meeting output must remain structured and concise"
+  ],
+  "decision_summary": "Use a bounded multi-agent meeting to split implementation and review before dispatch.",
+  "meeting_minutes": "Goal: Assess a bounded API fix. Status: MEETING_READY. Rounds used: 1/3. Decision: assignments are bounded and ready for reviewer expansion.",
+  "rounds_used": 1,
+  "round_limit": 3,
+  "convergence_reason": "Assignments are bounded and ready for reviewer expansion.",
+  "discussion_log": [
+    {
+      "round": 1,
+      "role": "meeting_coordinator",
+      "summary": "Keep the discussion bounded and converge to dispatchable tasks.",
+      "proposed_actions": [
+        "Do not discuss the whole repository.",
+        "Require explicit owner, scope, acceptance, and fallback for every task."
+      ],
+      "risk_flags": [],
+      "decision_state": "goal:Assess a bounded API fix and dispatch execution plus review tasks without discussing the whole repo."
+    },
+    {
+      "round": 1,
+      "role": "planner_agent",
+      "summary": "Prepare a bounded task graph from the current plan.",
+      "proposed_actions": [
+        "Keep total execution jobs at 1 before reviewer expansion.",
+        "Ensure every task stays at 3 files or fewer."
+      ],
+      "risk_flags": [],
+      "decision_state": "proposed"
+    },
+    {
+      "round": 1,
+      "role": "risk_reviewer",
+      "summary": "Review scope, loop risk, and historical failure pressure before final dispatch.",
+      "proposed_actions": [
+        "No critical risks found after bounded review."
+      ],
+      "risk_flags": [],
+      "decision_state": "reviewed"
+    },
+    {
+      "round": 1,
+      "role": "decision_agent",
+      "summary": "Assignments are bounded and ready for reviewer expansion.",
+      "proposed_actions": [
+        "Freeze the current bounded assignment set.",
+        "Append reviewer tasks after execution owners are finalized."
+      ],
+      "risk_flags": [],
+      "decision_state": "MEETING_READY"
+    }
+  ],
+  "task_assignments": [
+    {
+      "task_id": "task-001",
+      "owner_role": "executor_backend",
+      "scope": ["src/api/auth.py", "tests/test_auth.py"],
+      "depends_on": [],
+      "acceptance_criteria": [
+        "The API fix is implemented.",
+        "status.json must exist"
+      ],
+      "fallback_plan": "If the worker fails or overflows, retry with a narrower file scope."
+    },
+    {
+      "task_id": "task-001-review",
+      "owner_role": "reviewer_worker",
+      "scope": ["src/api/auth.py", "tests/test_auth.py"],
+      "depends_on": ["task-001"],
+      "acceptance_criteria": [
+        "raw/status/test artifacts are present",
+        "before/after evidence is reviewable"
+      ],
+      "fallback_plan": "If evidence is missing, return REPAIR_REQUIRED."
+    }
+  ],
+  "open_risks": [
+    "token overflow on broad scope",
+    "router transport instability",
+    "false success without verified file change"
+  ],
+  "stop_conditions": [
+    "meeting exceeds bounded rounds",
+    "task has no owner",
+    "task scope exceeds allowed file limit",
+    "repeat proposal is detected at the round limit"
+  ]
+}

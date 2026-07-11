@@ -1,0 +1,35 @@
+{
+  "goal_id": "ai-company-autopilot",
+  "trigger_rules": [
+    {
+      "trigger_id": "multi_task_scope",
+      "condition": "expected_subtasks >= 2",
+      "meeting_type": "bounded_planning",
+      "reason": "Task is likely to require coordination across more than one worker."
+    },
+    {
+      "trigger_id": "evidence_conflict",
+      "condition": "conflicting_evidence = true",
+      "meeting_type": "option_comparison",
+      "reason": "Conflicting evidence should be resolved before dispatch."
+    },
+    {
+      "trigger_id": "historical_overflow_pressure",
+      "condition": "historical_overflow_or_timeout = true",
+      "meeting_type": "risk_review",
+      "reason": "Similar runs have overflowed or timed out before."
+    },
+    {
+      "trigger_id": "router_instability_pressure",
+      "condition": "router_error_pressure = true",
+      "meeting_type": "recovery_planning",
+      "reason": "Router instability requires bounded recovery planning."
+    },
+    {
+      "trigger_id": "replan_after_failure",
+      "condition": "replan_required_count > 0",
+      "meeting_type": "replan_meeting",
+      "reason": "A failed or too-broad attempt should trigger narrower planning."
+    }
+  ]
+}

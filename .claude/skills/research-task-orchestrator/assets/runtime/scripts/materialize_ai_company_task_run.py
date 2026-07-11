@@ -56,7 +56,7 @@ def materialize_run(spec_path: Path, out_root: Path | None = None) -> Path:
         source_scope = (scope_root / str(spec["scope_copy_from"])).resolve()
         scope_path = run_dir / "worktree"
         shutil.copytree(source_scope, scope_path)
-    jobs = spec.get("jobs", [])
+    jobs = spec.get("jobs", []) or ((spec.get("goal_plan") or {}).get("jobs", []) if (spec.get("workflow") or {}).get("mode") == "goal_driven" else [])
     run_profile_mode, profile_reasons = resolve_run_profile_mode(spec)
     profile_registry = load_agent_profiles()
 
@@ -67,6 +67,10 @@ def materialize_run(spec_path: Path, out_root: Path | None = None) -> Path:
         "jobs": jobs,
     }
     write_json(run_dir / "plan.json", plan)
+    if spec.get("workflow", {}).get("mode") == "goal_driven":
+        write_json(ai_company_dir / "goal_plan.json", spec.get("goal_plan", {"goal": spec.get("goal"), "jobs": jobs}))
+        write_json(ai_company_dir / "dag_validation_report.json", spec.get("dag_validation_report", {}))
+        write_json(ai_company_dir / "goal_planner.json", spec.get("goal_planner", {}))
 
     for job in jobs:
         payload = dict(job)
@@ -91,6 +95,9 @@ def materialize_run(spec_path: Path, out_root: Path | None = None) -> Path:
         "results_dir": str(results_dir.resolve()),
         "spec_file": str(spec_path.resolve()),
         "expectations": spec.get("expectations", {}),
+        "workflow": spec.get("workflow", {"mode": "fixed"}),
+        "verification": spec.get("verification", {}),
+        "recovery": spec.get("recovery", {}),
         "metrics": {
             "total_files_in_scope": sum(len(job.get("files", [])) for job in jobs),
             "compact_inventory_files": sum(len(job.get("files", [])) for job in jobs),

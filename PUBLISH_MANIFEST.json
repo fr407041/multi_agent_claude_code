@@ -1,51 +1,76 @@
 {
   "repository": "fr407041/multi_agent_claude_code",
-  "purpose": "Runnable mock demo, public live router runner, and company Ubuntu skill package for research-task-orchestrator.",
-  "first_run_commands": [
-    "python3 scripts/verify_install.py",
-    "python3 scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock"
-  ],
-  "live_run_command": "bash scripts/run_common_research_with_router.sh docs/ai_specs/ai-company-release-readiness-strict-demo.json live",
-  "dashboard_commands": [
-    "bash .claude/skills/research-task-orchestrator/scripts/install_dashboard.sh",
-    "bash .claude/skills/research-task-orchestrator/scripts/start_dashboard.sh"
-  ],
-  "included": [
+  "purpose": "Runnable mock demo and company Ubuntu skill package for research-task-orchestrator.",
+  "include_roots": [
     "README.md",
+    "PUBLISH_MANIFEST.json",
     "release/RESTORE.md",
+    ".claude/skills/research-task-orchestrator",
     "scripts/verify_install.py",
     "scripts/run_ai_company_task_harness.py",
+    "scripts/run_ai_company_meeting.py",
+    "scripts/run_ai_company_execution.py",
+    "scripts/run_ai_company_reviewer_worker.py",
+    "scripts/run_ai_company_watchdog.py",
+    "scripts/main_agent_memory_guard.py",
+    "scripts/subagent_claim_ledger.py",
+    "scripts/agent_profile_resolver.py",
+    "scripts/materialize_ai_company_task_run.py",
+    "scripts/prepare_common_research_case.py",
+    "scripts/verify_common_research_artifact.py",
+    "scripts/verify_sens_summary_artifact.py",
     "scripts/run_common_research_with_router.sh",
     "scripts/run_ai_company_live_router.py",
+    "scripts/run_goal_driven_workflow.py",
+    "scripts/goal_driven_workflow.py",
+    "scripts/validate_ai_company_spec.py",
+    "scripts/package_contract.py",
+    "scripts/build_company_package.py",
     "scripts/worker_claude_router.py",
     "scripts/worker_claude_router.sh",
     "scripts/worker_claude_router_summary_template.sh",
     "scripts/worker_claude_router_managed_single_file.sh",
+    "configs/ai_company",
     "docs/ai_specs/ai-company-release-readiness-strict-demo.json",
-    "docs/LIVE_MODEL_SERVICE_SETUP.zh-TW.md",
+    "docs/ai_specs/goal-driven-dependency-recovery-mock.json",
+    "docs/ai_specs/goal-driven-external-evidence-live.json",
+    "docs/ai_specs/goal-driven-code-execute-repair-live.json",
+    "docs/QUICKSTART.zh-TW.md",
+    "docs/DEMO_RESULT.zh-TW.md",
     "tests/fixtures/ai_company_release_readiness_demo",
-    ".claude/skills/research-task-orchestrator",
+    "tests/fixtures/goal_driven_supplied",
+    "tests/fixtures/goal_driven_external",
+    "tests/fixtures/goal_driven_code",
+    "tests/test_goal_driven_workflow.py",
     "agent_os_mvp"
   ],
-  "excluded": [
+  "exclude_patterns": [
     "docker/",
     "results/",
     "tmp/",
     ".venv/",
+    "venv/",
     "node_modules/",
+    "dist/",
+    "build/",
     "logs/",
+    "__pycache__/",
+    "*.pyc",
     "*.db",
     "*.sqlite",
-    "real API keys",
-    "passwords",
-    "model weights"
+    "*.zip",
+    "*.base64",
+    ".env",
+    ".env.*"
+  ],
+  "first_run_commands": [
+    "python3 scripts/verify_install.py",
+    "python3 scripts/run_ai_company_task_harness.py docs/ai_specs/ai-company-release-readiness-strict-demo.json --mode mock"
   ],
   "validated_locally": {
     "verify_install": "pass",
     "mock_demo_overall_status": "pass",
     "artifact_score": 1.0,
-    "frontend_build": "pass",
-    "backend_import_smoke": "pass",
-    "secret_scan": "no real secrets found"
+    "secret_scan": "no real secrets found; env var names and dummy local-test-key only"
   }
 }

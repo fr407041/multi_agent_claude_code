@@ -43,7 +43,7 @@ def resolve_path(raw_path: str, run_dir: Path) -> Path:
 
 
 def read_text_if_exists(path: Path, limit: int = 6000) -> str:
-    if not path or not path.exists():
+    if not path or not path.exists() or not path.is_file():
         return ""
     text = path.read_text(encoding="utf-8", errors="ignore")
     return text[:limit]

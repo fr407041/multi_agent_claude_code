@@ -209,6 +209,18 @@ The watchdog must stay bounded. It must not loop forever, install tools, change 
 
 ## Main Agent Memory Guard
 
+## Goal-Driven DAG
+
+When the user supplies only a natural-language goal and asks for automatic planning, run:
+
+```bash
+python3 scripts/run_goal_driven_workflow.py --goal "<goal>" --mode live
+```
+
+Use `--scope-copy-from` and repeated `--supplied-input` for bounded supplied evidence. The planner must produce only the generic acquire/analyze/generate/execute/verify/synthesize capabilities. Do not bypass `dag_validation_report.json`, and do not treat process exit zero as acceptance. Final status comes only from `ai_company/final_run_verdict.json`.
+
+Common workflows use `generic_contract`. Fixture verifiers require explicit spec selection and must never be inferred from a filename or `summary.md`.
+
 Use the phase-gate memory guard to prevent the master process from carrying too much accumulated context.
 
 The guard runs after:

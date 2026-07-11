@@ -6,8 +6,8 @@ from pathlib import Path
 
 from agent_profile_resolver import PROFILE_STATUS_PROFILE_VIOLATION, profile_policy_issues
 from subagent_claim_ledger import validate_claim_contract, write_claim_ledger
-from verify_sens_summary_artifact import verify_case_dir
 from verify_common_research_artifact import verify_case_dir as verify_common_case_dir
+from goal_driven_workflow import verify_job_contract
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -69,8 +69,6 @@ def map_verdict(
 def verify_summary_artifact(scope_path: Path) -> dict | None:
     if (scope_path / "artifact_requirements.json").exists():
         return verify_common_case_dir(scope_path)
-    if (scope_path / "summary.md").exists():
-        return verify_case_dir(scope_path)
     return None
 
 
@@ -85,6 +83,19 @@ def build_reviewer_payload(run_dir: Path) -> dict:
     for claim in claim_ledger.get("claims", []):
         claims_by_task.setdefault(str(claim.get("task_id", "")), []).append(claim)
     verdicts = []
+    summary = read_json(run_dir / "summary.json") if (run_dir / "summary.json").is_file() else {}
+    goal_driven = (summary.get("workflow") or {}).get("mode") == "goal_driven"
+    jobs_by_id = {
+        str(payload.get("id", path.stem)): payload
+        for path in sorted((run_dir / "jobs").glob("job-*.json"))
+        for payload in [read_json(path)]
+        if "-reassign-" not in str(payload.get("id", ""))
+    }
+    producer_by_output = {
+        str(output): job_id
+        for job_id, job in jobs_by_id.items()
+        for output in job.get("outputs", job.get("files", []))
+    }
     for status_path in sorted(results_dir.glob("*.status.json")):
         status = read_json(status_path)
         task_id = status.get("id", status_path.stem)
@@ -92,7 +103,12 @@ def build_reviewer_payload(run_dir: Path) -> dict:
         scope_path = normalize_scope_path(str(status.get("scope_path", "")), run_dir)
         tracked_files = [str(item) for item in status.get("files", [])]
         artifact_verify = None
-        if should_verify_summary_artifact(tracked_files):
+        generic_contract = None
+        job = jobs_by_id.get(str(task_id), {})
+        if goal_driven and job:
+            generic_contract = verify_job_contract(run_dir, job, status, task_claims)
+            artifact_verify = {"all_passed": generic_contract.get("all_passed", False), "score": 1.0 if generic_contract.get("all_passed") else 0.0, "failure_category": generic_contract.get("failure_category", "")}
+        elif should_verify_summary_artifact(tracked_files):
             artifact_verify = verify_summary_artifact(scope_path)
         claim_issue = ""
         if status.get("status") == "SUCCESS" and not task_claims:
@@ -168,6 +184,15 @@ def build_reviewer_payload(run_dir: Path) -> dict:
                 "evidence": evidence,
                 "repair_action": repair_action,
                 "replan_required": replan_required,
+                "failure_category": (generic_contract or {}).get("failure_category", "") or (artifact_verify or {}).get("failure_category", ""),
+                "failed_job": task_id if verdict != "ACCEPTED" else "",
+                "failed_checks": (generic_contract or {}).get("failed_checks", []),
+                "missing_inputs": (generic_contract or {}).get("missing_inputs", []),
+                "missing_artifacts": (generic_contract or {}).get("missing_artifacts", []),
+                "recommended_recovery_job": next(
+                    (producer_by_output[item] for item in (generic_contract or {}).get("missing_inputs", []) if item in producer_by_output),
+                    task_id if verdict != "ACCEPTED" else "",
+                ),
             }
         )
 

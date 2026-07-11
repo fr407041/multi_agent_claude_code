@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from goal_driven_workflow import VERIFIER_REGISTRY, validate_goal_plan
+
 
 ROOT = Path(__file__).resolve().parent.parent
 ALLOWED_WORKER_TEMPLATES = {
@@ -50,11 +52,37 @@ def validate_spec(spec_path: Path, root: Path = ROOT) -> dict[str, Any]:
     if not isinstance(spec, dict):
         errors.append({"code": "SPEC_ROOT_INVALID", "detail": "spec root must be an object"})
         spec = {}
+    if (spec.get("workflow") or {}).get("mode") == "goal_driven" and not spec.get("jobs"):
+        spec["jobs"] = (spec.get("goal_plan") or {}).get("jobs", [])
     for key in ["id", "goal", "jobs"]:
         if not spec.get(key):
             errors.append({"code": "SPEC_FIELD_MISSING", "detail": key})
 
     jobs = spec.get("jobs", []) if isinstance(spec.get("jobs"), list) else []
+    workflow = spec.get("workflow", {}) if isinstance(spec.get("workflow"), dict) else {}
+    workflow_mode = str(workflow.get("mode", "fixed"))
+    if workflow_mode not in {"fixed", "goal_driven"}:
+        errors.append({"code": "WORKFLOW_MODE_INVALID", "detail": workflow_mode})
+    if workflow_mode == "goal_driven":
+        verification = spec.get("verification", {}) if isinstance(spec.get("verification"), dict) else {}
+        if verification.get("type") != "generic_contract":
+            errors.append({"code": "VERIFIER_SCOPE_MISMATCH", "detail": "goal_driven workflow requires generic_contract"})
+        dag_report = validate_goal_plan(
+            {"goal": spec.get("goal"), "jobs": jobs, "supplied_inputs": (spec.get("goal_plan") or {}).get("supplied_inputs", [])},
+            int(workflow.get("max_jobs", 8)),
+        )
+        errors.extend(dag_report.get("errors", []))
+    verification = spec.get("verification", {}) if isinstance(spec.get("verification"), dict) else {}
+    verification_type = str(verification.get("type", "legacy_explicit_command" if spec.get("post_verify_command") else "generic_contract"))
+    if verification_type not in {"generic_contract", "fixture", "legacy_explicit_command"}:
+        errors.append({"code": "VERIFIER_TYPE_INVALID", "detail": verification_type})
+    if verification_type == "fixture":
+        verifier_id = str(verification.get("verifier_id", ""))
+        if verifier_id not in VERIFIER_REGISTRY:
+            errors.append({"code": "VERIFIER_SCOPE_MISMATCH", "detail": verifier_id or "fixture verifier_id missing"})
+        expected_script = VERIFIER_REGISTRY.get(verifier_id, "")
+        if expected_script and expected_script not in str(spec.get("post_verify_command", "")):
+            errors.append({"code": "VERIFIER_SCOPE_MISMATCH", "detail": f"{verifier_id} must explicitly select {expected_script}"})
     seen_ids: set[str] = set()
     output_owners: dict[str, list[str]] = {}
     worker_errors = 0

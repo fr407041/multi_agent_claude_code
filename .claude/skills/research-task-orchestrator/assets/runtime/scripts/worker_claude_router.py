@@ -209,6 +209,7 @@ def extract_summary_content(raw: str) -> str:
 def build_prompt_details(job: dict[str, Any], worker_kind: str, scope: Path) -> tuple[str, dict[str, Any]]:
     files = job.get("files", [])
     context_files = [str(item) for item in job.get("template_context_files", [])]
+    context_targets = [str(item) for item in job.get("inputs", [])] if job.get("capability") else [str(item) for item in files]
     if worker_kind == "summary":
         for rel in ["evidence_summary.txt", "summary_context.txt"]:
             if rel not in context_files and (scope / rel).exists():
@@ -217,7 +218,7 @@ def build_prompt_details(job: dict[str, Any], worker_kind: str, scope: Path) -> 
     defaults = load_context_defaults()
     context_result = build_bounded_context(
         scope,
-        [*context_files, *files],
+        [*context_files, *context_targets],
         role=role,
         defaults=defaults,
     )
@@ -286,6 +287,41 @@ If the context or verifier contract contains exact numeric phrases or regex-like
 Do not add headings unless the task explicitly asks for headings.
 Do not use nested bullets.
 Do not claim that you wrote a file. The wrapper writes files after validating this content.
+"""
+    elif worker_kind == "managed":
+        target = files[0] if files else "output.txt"
+        suffix = Path(target).suffix.lower()
+        format_rule = "Return concise UTF-8 text."
+        if suffix == ".json":
+            format_rule = "Return one valid JSON object only. Do not use markdown fences. Include concrete evidence fields and no comments."
+        elif suffix in {".py", ".js", ".sh"}:
+            format_rule = "Return executable source code only. Do not use markdown fences or explanations."
+        elif suffix in {".md", ".txt"}:
+            format_rule = "Return concise evidence-grounded document content with an explicit conclusion and limitations."
+        prompt = f"""You are a bounded managed-artifact worker.
+
+Task:
+{job.get("instruction", "")}
+
+Target artifact: {target}
+Declared inputs: {json.dumps(job.get("inputs", []), ensure_ascii=False)}
+Acceptance criteria: {json.dumps(job.get("acceptance_criteria", []), ensure_ascii=False)}
+
+Context:
+{context}
+
+Context guard manifest (do not assume omitted bytes were read):
+{context_manifest}
+Input budget: {budget['input_tokens']} estimated tokens.
+
+{format_rule}
+Wrap the artifact exactly as:
+CONTENT_START
+<artifact content>
+CONTENT_END
+
+Do not claim to call tools. The wrapper writes one declared artifact and runs the declared test command.
+If required input is missing, return STATUS: NEEDS_REPLAN instead of fabricating evidence.
 """
     else:
         prompt = f"""You are a bounded Claude worker.

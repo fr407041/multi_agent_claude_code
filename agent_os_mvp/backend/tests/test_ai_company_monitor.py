@@ -213,6 +213,30 @@ class AiCompanyMonitorSummaryTest(unittest.TestCase):
         self.assertEqual(detail["final_result"]["domain_verdict"]["status"], "fail")
         self.assertTrue(any(item["type"] == "domain_verdict_failed" for item in detail["alerts"]))
 
+    def test_canonical_goal_verdict_and_dag_are_exposed_without_ui_inference(self) -> None:
+        root = Path(self.tempdir.name) / "goal-runs"
+        ai_dir = root / "run-goal-fail" / "ai_company"
+        ai_dir.mkdir(parents=True)
+        (ai_dir / "task_harness_report.json").write_text(json.dumps({
+            "spec_id": "goal-test", "started_at": "2026-07-11T04:00:00+00:00", "overall_status": "pass", "kpis": {},
+        }), encoding="utf-8")
+        (ai_dir / "final_run_verdict.json").write_text(json.dumps({
+            "overall_status": "fail", "root_failed_job": "job-001", "failure_category": "INPUT_INSUFFICIENT",
+            "blocked_descendants": ["job-002"], "next_action": "Repair job-001", "source": "canonical_final_run_verdict",
+        }), encoding="utf-8")
+        (ai_dir / "goal_plan.json").write_text(json.dumps({"jobs": [
+            {"id": "job-001", "capability": "acquire", "depends_on": [], "outputs": ["evidence.json"]},
+            {"id": "job-002", "capability": "synthesize", "depends_on": ["job-001"], "outputs": ["summary.md"]},
+        ]}), encoding="utf-8")
+        (ai_dir / "dependency_state.json").write_text(json.dumps({"states": {"job-001": {"state": "failed"}, "job-002": {"state": "blocked"}}}), encoding="utf-8")
+        with get_db() as connection:
+            with patch("app.services.ai_company_monitor.get_results_root", return_value=root):
+                collect_ai_company_monitor(connection)
+                detail = get_ai_company_run_detail(connection, "run-goal-fail")
+        self.assertEqual(detail["overall_status"], "fail")
+        self.assertEqual(detail["final_run_verdict"]["root_failed_job"], "job-001")
+        self.assertEqual(detail["goal_dag"]["dependency_state"]["states"]["job-002"]["state"], "blocked")
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.tempdir.name, "agent_os_monitor_test.db")

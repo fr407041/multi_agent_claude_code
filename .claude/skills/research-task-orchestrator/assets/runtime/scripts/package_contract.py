@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 
 PACKAGE_SCHEMA_VERSION = 1
-RELEASE_ID = "2026.07.11-company.10"
+RELEASE_ID = "2026.07.11-company.11"
 MANIFEST_PATH = Path("release") / "ai_company_package_manifest.json"
 
 CANONICAL_ROLES = [
@@ -38,6 +38,8 @@ RUNTIME_REQUIRED_PATHS = [
     "scripts/agent_token_ledger.py",
     "scripts/bounded_context_loader.py",
     "scripts/run_local_model_action_executor.py",
+    "scripts/goal_driven_workflow.py",
+    "scripts/run_goal_driven_workflow.py",
     "scripts/prepare_common_research_case.py",
     "scripts/verify_common_research_artifact.py",
     "scripts/verify_sens_summary_artifact.py",
@@ -47,7 +49,11 @@ RUNTIME_REQUIRED_PATHS = [
     "scripts/worker_claude_router_managed_single_file.sh",
     "configs/ai_company/agent_profiles.json",
     "configs/ai_company/task_harness.defaults.json",
+    "configs/ai_company/task_assignment.schema.json",
     "docs/ai_specs/ai-company-release-readiness-strict-demo.json",
+    "docs/ai_specs/goal-driven-dependency-recovery-mock.json",
+    "docs/ai_specs/goal-driven-external-evidence-live.json",
+    "docs/ai_specs/goal-driven-code-execute-repair-live.json",
     "tests/fixtures/ai_company_release_readiness_demo/release_brief.md",
     "tests/fixtures/ai_company_release_readiness_demo/test_results.md",
     "tests/fixtures/ai_company_release_readiness_demo/risk_log.md",
@@ -56,6 +62,9 @@ RUNTIME_REQUIRED_PATHS = [
     "tests/fixtures/ai_company_release_readiness_demo/README.md",
     "tests/fixtures/ai_company_release_readiness_demo/research_brief.md",
     "tests/fixtures/ai_company_release_readiness_demo/evidence_summary.txt",
+    "tests/fixtures/goal_driven_supplied/source.txt",
+    "tests/fixtures/goal_driven_external/evidence.json",
+    "tests/fixtures/goal_driven_code/requirements.md",
     *[
         f".claude/skills/research-task-orchestrator/agents/roles/{role}.md"
         for role in CANONICAL_ROLES

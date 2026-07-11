@@ -1,0 +1,157 @@
+{
+  "goal_id": "ai-company-autopilot",
+  "cases": [
+    {
+      "case_id": "small_research_summary",
+      "description": "Small bounded research summary with prefetched evidence.",
+      "expected_pipeline": "research_summary",
+      "meeting_expected": "optional_or_minimal",
+      "required_signals": [
+        "task_classified",
+        "pipeline_attached",
+        "task_dispatched",
+        "review_completed",
+        "verify_completed"
+      ],
+      "expected_alerts": [],
+      "anti_goals": [
+        "no_manual_agent_selection",
+        "no_unbounded_context_scan"
+      ]
+    },
+    {
+      "case_id": "complex_research_conflict",
+      "description": "Research task with conflicting evidence that should trigger a bounded meeting.",
+      "expected_pipeline": "research_conflict_resolution",
+      "meeting_expected": "required",
+      "required_signals": [
+        "task_classified",
+        "pipeline_attached",
+        "meeting_started",
+        "meeting_completed",
+        "task_dispatched",
+        "review_completed",
+        "verify_completed"
+      ],
+      "expected_alerts": [],
+      "anti_goals": [
+        "no_dispatch_before_meeting"
+      ]
+    },
+    {
+      "case_id": "implementation_small",
+      "description": "Small implementation task that should auto-attach a code pipeline and select execution agents.",
+      "expected_pipeline": "implementation_small",
+      "meeting_expected": "optional",
+      "required_signals": [
+        "task_classified",
+        "pipeline_attached",
+        "task_dispatched",
+        "review_completed",
+        "verify_completed"
+      ],
+      "expected_alerts": [],
+      "anti_goals": [
+        "no_research_agent_only_path"
+      ]
+    },
+    {
+      "case_id": "failure_recovery_router_or_overflow",
+      "description": "Failure recovery task that simulates router error or overflow and verifies bounded recovery behavior.",
+      "expected_pipeline": "failure_recovery",
+      "meeting_expected": "conditional",
+      "required_signals": [
+        "task_classified",
+        "pipeline_attached",
+        "task_dispatched",
+        "failure_detected",
+        "replan_or_recovery_started",
+        "review_completed"
+      ],
+      "expected_alerts": [
+        "overflow",
+        "router_error",
+        "replan_loop"
+      ],
+      "anti_goals": [
+        "no_same_prompt_resend_after_overflow",
+        "no_infinite_replan_loop"
+      ]
+    },
+    {
+      "case_id": "reasoning_heavy_output_pressure",
+      "description": "Reasoning-heavy local model output that tends to over-explain and risk output overflow.",
+      "expected_pipeline": "research_summary",
+      "meeting_expected": "conditional",
+      "required_signals": [
+        "task_classified",
+        "pipeline_attached",
+        "failure_detected",
+        "replan_or_recovery_started",
+        "verify_completed"
+      ],
+      "expected_alerts": [
+        "overflow"
+      ],
+      "anti_goals": [
+        "no_unbounded_reasoning_dump"
+      ]
+    },
+    {
+      "case_id": "router_partial_or_empty_response",
+      "description": "Router returns empty or partial content and the system must classify it as transport failure instead of false success.",
+      "expected_pipeline": "failure_recovery",
+      "meeting_expected": "conditional",
+      "required_signals": [
+        "task_classified",
+        "pipeline_attached",
+        "failure_detected",
+        "replan_or_recovery_started",
+        "review_completed"
+      ],
+      "expected_alerts": [
+        "router_error"
+      ],
+      "anti_goals": [
+        "no_false_success_acceptance"
+      ]
+    },
+    {
+      "case_id": "false_success_no_real_change",
+      "description": "Worker claims success without real file change and reviewer or verifier must block acceptance.",
+      "expected_pipeline": "implementation_small",
+      "meeting_expected": "optional",
+      "required_signals": [
+        "task_classified",
+        "pipeline_attached",
+        "task_dispatched",
+        "review_completed"
+      ],
+      "expected_alerts": [
+        "artifact_regression"
+      ],
+      "anti_goals": [
+        "no_claimed_success_without_change"
+      ]
+    },
+    {
+      "case_id": "replan_loop_guard",
+      "description": "Repeated narrow-scope replans must hit a bounded guard instead of looping forever.",
+      "expected_pipeline": "failure_recovery",
+      "meeting_expected": "required",
+      "required_signals": [
+        "task_classified",
+        "pipeline_attached",
+        "meeting_started",
+        "replan_or_recovery_started",
+        "review_completed"
+      ],
+      "expected_alerts": [
+        "replan_loop"
+      ],
+      "anti_goals": [
+        "no_unbounded_replan_cycle"
+      ]
+    }
+  ]
+}

@@ -9,13 +9,15 @@ MODEL_TAGS_URL="${MODEL_TAGS_URL:-http://127.0.0.1:11434/api/tags}"
 CCR_BASE_URL="${CCR_BASE_URL:-http://127.0.0.1:3456}"
 CCR_HEALTH_URL="${CCR_HEALTH_URL:-http://127.0.0.1:3456/health}"
 CCR_MESSAGES_URL="${CCR_MESSAGES_URL:-${CCR_BASE_URL%/}/v1/messages}"
+LIVE_TASK_URL="${AI_COMPANY_LIVE_TASK_URL:-}"
 
 export AI_COMPANY_WORKER_SCRIPTS_DIR="${ROOT_DIR}/scripts"
-if [[ -z "${CLAUDE_MODEL_ALIAS:-}" && -z "${CCR_PREFERRED_MODEL:-}" ]]; then
-  echo "Live mode requires CLAUDE_MODEL_ALIAS or CCR_PREFERRED_MODEL. Set it to your provider-selected model alias." >&2
+if [[ -z "${LIVE_TASK_URL}" && -z "${CLAUDE_MODEL_ALIAS:-}" && -z "${CCR_PREFERRED_MODEL:-}" ]]; then
+  echo "Direct CCR /v1/messages live mode requires CLAUDE_MODEL_ALIAS or CCR_PREFERRED_MODEL." >&2
+  echo "If your router exposes a provider-neutral task API, set AI_COMPANY_LIVE_TASK_URL instead." >&2
   exit 2
 fi
-export CLAUDE_MODEL_ALIAS="${CLAUDE_MODEL_ALIAS:-${CCR_PREFERRED_MODEL}}"
+export CLAUDE_MODEL_ALIAS="${CLAUDE_MODEL_ALIAS:-${CCR_PREFERRED_MODEL:-}}"
 export CLAUDE_TOOLS_VALUE="${CLAUDE_TOOLS_VALUE-}"
 export CCR_PREFERRED_MODEL="${CCR_PREFERRED_MODEL:-${CLAUDE_MODEL_ALIAS}}"
 export CCR_MAX_OUTPUT_TOKENS="${CCR_MAX_OUTPUT_TOKENS:-1024}"
@@ -90,18 +92,20 @@ require_command bash
 require_command curl
 require_command python3
 
-if ! probe_url "${MODEL_MODELS_URL}"; then
-  if ! probe_url "${MODEL_TAGS_URL}"; then
-    cat >&2 <<EOF
-Model service preflight failed.
+if [[ "${AI_COMPANY_PROBE_MODEL_ENDPOINTS:-0}" == "1" ]]; then
+  if ! probe_url "${MODEL_MODELS_URL}"; then
+    if ! probe_url "${MODEL_TAGS_URL}"; then
+      cat >&2 <<EOF
+Optional model service preflight failed.
 Tried:
   MODEL_MODELS_URL=${MODEL_MODELS_URL}
   MODEL_TAGS_URL=${MODEL_TAGS_URL}
 
-Start Ollama, LM Studio, or your OpenAI-compatible model server first.
-If models were moved to D:, fix the model service config before rerunning.
+This runner is provider-neutral by default. Either fix the model service config
+or rerun without AI_COMPANY_PROBE_MODEL_ENDPOINTS=1 and rely on router health.
 EOF
-    exit 1
+      exit 1
+    fi
   fi
 fi
 
@@ -110,7 +114,11 @@ if ! probe_url "${CCR_HEALTH_URL}"; then
   exit 1
 fi
 
-probe_ccr_messages
+if [[ -z "${LIVE_TASK_URL}" ]]; then
+  probe_ccr_messages
+else
+  echo "Using provider-neutral AI_COMPANY_LIVE_TASK_URL=${LIVE_TASK_URL}"
+fi
 
 if [[ "${LIVE_SIDE_EFFECT_SMOKE:-1}" != "0" ]]; then
   python3 "${ROOT_DIR}/scripts/smoke_live_tool_side_effect.py"

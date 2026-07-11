@@ -167,6 +167,9 @@ function TrustChecks({ checks }) {
 
 function toRunVerdict(run, selectedRunSummary, finalResult, watchdog) {
   if (!run && !selectedRunSummary) return "UNKNOWN";
+  const canonicalStatus = normalizeStatus(finalResult.final_run_verdict?.overall_status);
+  if (canonicalStatus === "pass") return "PASS";
+  if (canonicalStatus === "fail") return "FAIL";
   const status = normalizeStatus(run?.overall_status || selectedRunSummary?.overall_status);
   const hasFailedAgent = (selectedRunSummary?.failed_agent_count || run?.failed_agent_count || 0) > 0;
   const hasSemanticFailure = (finalResult.semantic_expectations || []).some((item) => item.status === "failed");
@@ -249,6 +252,8 @@ function buildNextAction(verdict, finalResult, watchdog, packagePreflight) {
       ? `Repair package integrity first: ${target}. Do not rerun model agents yet.`
       : "Run strict package verification before rerunning model agents.";
   }
+  const canonical = finalResult.final_run_verdict || {};
+  if (canonical.next_action) return canonical.next_action;
   const domainVerdict = finalResult.domain_verdict || {};
   if (domainVerdict.enabled && domainVerdict.status !== "pass") {
     const defect = domainVerdict.defects?.[0] || {};
@@ -524,6 +529,23 @@ export default function App() {
           </div>
         </article>
       </section>
+
+      {run?.goal_dag?.plan?.jobs?.length ? (
+        <section className="surface details-section">
+          <SectionHeader title="Goal DAG" meta="Canonical dependency and recovery state" status={runVerdict} />
+          <div className="agent-flow">
+            {run.goal_dag.plan.jobs.map((job, index) => {
+              const state = run.goal_dag.dependency_state?.states?.[job.id]?.state || "waiting";
+              return <FlowStep key={job.id} step={{ label: `${job.id} / ${job.capability}`, status: state, note: `${(job.depends_on || []).join(", ") || "root"} -> ${(job.outputs || []).join(", ")}` }} isLast={index === run.goal_dag.plan.jobs.length - 1} />;
+            })}
+          </div>
+          <div className="debug-grid">
+            <article><h3>Root cause</h3><p>{run.final_run_verdict?.root_failed_job || "none"} {run.final_run_verdict?.failure_category || ""}</p></article>
+            <article><h3>Blocked descendants</h3><p>{(run.final_run_verdict?.blocked_descendants || []).join(", ") || "none"}</p></article>
+            <article><h3>Recovery</h3><p>{run.final_run_verdict?.recovery_action || "No recovery required"}</p></article>
+          </div>
+        </section>
+      ) : null}
 
       <section className="summary-grid">
         <article className="surface summary-panel">

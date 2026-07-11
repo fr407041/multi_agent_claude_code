@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Company Meeting Decision",
+  "type": "object",
+  "required": [
+    "meeting_id",
+    "meeting_status",
+    "goal",
+    "constraints",
+    "decision_summary",
+    "meeting_minutes",
+    "rounds_used",
+    "round_limit",
+    "discussion_log",
+    "task_assignments",
+    "open_risks",
+    "stop_conditions"
+  ],
+  "properties": {
+    "meeting_id": { "type": "string", "minLength": 1 },
+    "meeting_status": {
+      "type": "string",
+      "enum": ["MEETING_READY", "MEETING_NEEDS_REPLAN"]
+    },
+    "goal": { "type": "string", "minLength": 1 },
+    "constraints": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "decision_summary": { "type": "string", "minLength": 1 },
+    "meeting_minutes": { "type": "string", "minLength": 1 },
+    "rounds_used": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "round_limit": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "convergence_reason": { "type": "string", "minLength": 1 },
+    "discussion_log": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["round", "role", "summary", "proposed_actions", "risk_flags", "decision_state"],
+        "properties": {
+          "round": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "role": {
+            "type": "string",
+            "enum": ["meeting_coordinator", "planner_agent", "risk_reviewer", "decision_agent"]
+          },
+          "summary": { "type": "string", "minLength": 1 },
+          "proposed_actions": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "risk_flags": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "decision_state": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "task_assignments": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "task_assignment.schema.json" }
+    },
+    "open_risks": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "stop_conditions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "run_profile_mode": {
+      "type": "string",
+      "enum": ["simple", "strict"]
+    },
+    "profile_resolution_reasons": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

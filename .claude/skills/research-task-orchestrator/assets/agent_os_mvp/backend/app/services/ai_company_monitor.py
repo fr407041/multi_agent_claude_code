@@ -705,6 +705,19 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     package_preflight = _load_json(ai_dir / "package_preflight_report.json") if (ai_dir / "package_preflight_report.json").exists() else {}
     watchdog = _load_json(ai_dir / "watchdog_report.json") if (ai_dir / "watchdog_report.json").exists() else {}
     domain_verdict = _load_json(ai_dir / "domain_verdict.json") if (ai_dir / "domain_verdict.json").exists() else {}
+    final_run_verdict = _load_json(ai_dir / "final_run_verdict.json") if (ai_dir / "final_run_verdict.json").exists() else {}
+    goal_plan = _load_json(ai_dir / "goal_plan.json") if (ai_dir / "goal_plan.json").exists() else {}
+    dag_validation = _load_json(ai_dir / "dag_validation_report.json") if (ai_dir / "dag_validation_report.json").exists() else {}
+    dependency_state = _load_json(ai_dir / "dependency_state.json") if (ai_dir / "dependency_state.json").exists() else {}
+    generic_contract = _load_json(ai_dir / "generic_contract_report.json") if (ai_dir / "generic_contract_report.json").exists() else {}
+    recovery_trace = []
+    recovery_path = ai_dir / "recovery_trace.jsonl"
+    if recovery_path.is_file():
+        for line in recovery_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                recovery_trace.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
     plan = _load_json(run_dir / "plan.json") if (run_dir / "plan.json").exists() else {}
     summary = _read_text(run_dir / "worktree" / "summary.md") if (run_dir / "worktree" / "summary.md").exists() else ""
 
@@ -739,7 +752,7 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     if not artifact_verify and (ai_dir / "artifact_verify_report.json").exists():
         artifact_verify = _load_json(ai_dir / "artifact_verify_report.json").get("parsed", {})
     alerts = _build_alerts(report, watchdog, artifact_verify, domain_verdict)
-    effective_overall_status = "fail" if domain_verdict.get("enabled") and domain_verdict.get("status") != "pass" else report.get("overall_status", "unknown")
+    effective_overall_status = final_run_verdict.get("overall_status") or ("fail" if domain_verdict.get("enabled") and domain_verdict.get("status") != "pass" else report.get("overall_status", "unknown"))
     normalized_claims = _normalize_claims(claim_ledger.get("claims", []))
 
     status_details = []
@@ -776,6 +789,8 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "semantic_expectations_passed": artifact_verify.get("semantic_expectations_passed"),
         "schema_context": artifact_verify.get("schema_context", {}),
         "domain_verdict": domain_verdict,
+        "final_run_verdict": final_run_verdict,
+        "generic_contract": generic_contract,
         "accepted_count": report.get("kpis", {}).get("accepted_count", 0),
         "overall_status": effective_overall_status,
     }
@@ -873,6 +888,9 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "execution_log": execution.get("execution_log", []),
         "status_details": status_details,
         "final_result": final_result,
+        "goal_dag": {"plan": goal_plan, "validation": dag_validation, "dependency_state": dependency_state},
+        "recovery_trace": recovery_trace,
+        "final_run_verdict": final_run_verdict,
         "kpis": report.get("kpis", {}),
     }
 

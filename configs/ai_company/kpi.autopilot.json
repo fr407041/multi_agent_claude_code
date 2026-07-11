@@ -1,0 +1,86 @@
+{
+  "goal_id": "ai-company-autopilot",
+  "categories": {
+    "automation": {
+      "pipeline_auto_attach_rate": {
+        "target_gte": 0.95,
+        "description": "Runs that automatically receive a pipeline without manual attachment."
+      },
+      "meeting_auto_trigger_rate": {
+        "target_gte": 0.9,
+        "description": "Runs that should trigger meetings and do trigger them automatically."
+      },
+      "agent_auto_assignment_rate": {
+        "target_gte": 0.95,
+        "description": "Tasks assigned to agents without manual task-by-task selection."
+      },
+      "manual_override_rate": {
+        "target_lte": 0.1,
+        "description": "Runs that require manual pipeline, meeting, or agent override."
+      }
+    },
+    "stability": {
+      "bounded_completion_rate": {
+        "target_gte": 0.95,
+        "description": "Runs completed within bounded job and retry limits."
+      },
+      "replan_loop_rate": {
+        "target_eq": 0.0,
+        "description": "Runs that exceed the allowed replan pattern."
+      },
+      "overflow_incidence": {
+        "target_lte": 0.1,
+        "description": "Runs that hit token overflow."
+      },
+      "router_error_incidence": {
+        "target_lte": 0.1,
+        "description": "Runs that hit router transport failures."
+      }
+    },
+    "traceability": {
+      "event_coverage_rate": {
+        "target_eq": 1.0,
+        "description": "Runs with required event stages recorded."
+      },
+      "decision_trace_completeness": {
+        "target_gte": 0.9,
+        "description": "Decisions that record reason, affected tasks, and outcome."
+      },
+      "meeting_trace_completeness": {
+        "target_eq": 1.0,
+        "description": "Meeting runs with summary, assignments, and convergence reason."
+      }
+    },
+    "quality": {
+      "artifact_pass_rate": {
+        "target_gte": 0.9,
+        "description": "Runs whose artifact verification fully passes."
+      },
+      "accepted_without_manual_fix_rate": {
+        "target_gte": 0.8,
+        "description": "Runs accepted without manual repair."
+      },
+      "false_success_block_rate": {
+        "target_range": [
+          0.0,
+          0.15
+        ],
+        "description": "False-success candidates that are correctly blocked without flooding the system."
+      }
+    },
+    "usability": {
+      "first_screen_answer_rate": {
+        "target_gte": 0.9,
+        "description": "Can a user answer status, active-agent, and trust questions from the default screen."
+      },
+      "default_screen_primary_sections": {
+        "target_lte": 3,
+        "description": "Primary sections visible before expanding technical detail."
+      },
+      "details_open_dependency": {
+        "target_lte": 0.2,
+        "description": "Fraction of runs where a user must open technical details to determine basic health."
+      }
+    }
+  }
+}

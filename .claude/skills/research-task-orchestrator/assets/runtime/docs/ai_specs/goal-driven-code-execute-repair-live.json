@@ -1,0 +1,20 @@
+{
+  "id": "goal-driven-code-execute-repair-live",
+  "goal": "Generate a bounded Python program, execute its test contract, and summarize verified results.",
+  "workflow": {"mode": "goal_driven", "max_jobs": 3, "max_replans": 1},
+  "verification": {"type": "generic_contract", "claim_evidence_required": true},
+  "recovery": {"strategy": "dependency_aware", "max_attempts_per_job": 1},
+  "agent_profile_mode": "strict",
+  "scope_copy_from": "tests/fixtures/goal_driven_code",
+  "goal_plan": {
+    "goal": "Generate a bounded Python program, execute its test contract, and summarize verified results.",
+    "supplied_inputs": ["requirements.md"],
+    "jobs": [
+      {"id":"job-001","title":"Generate tested program","capability":"generate","instruction":"Recovery drill: on the initial attempt create solution.py that exits with status 1. If and only if the instruction contains DEPENDENCY_AWARE_RECOVERY, read requirements.md and correct solution.py to print goal-driven-ok and exit zero.","depends_on":[],"inputs":["requirements.md"],"outputs":["solution.py"],"files":["solution.py"],"tools":["read","write","python","test"],"test_command":"python3 solution.py","acceptance_criteria":[{"type":"artifact_exists","path":"solution.py"},{"type":"command_success"},{"type":"claim_evidence"}],"evidence_requirements":["test stdout and exit code"],"success_check":"Typed criteria pass.","owner_role":"executor_backend","agent_profile":"executor_backend","worker_template":"managed_single_file","require_change":true,"fallback_plan":"Repair generation before any descendant runs."},
+      {"id":"job-002","title":"Summarize verified execution","capability":"synthesize","instruction":"Use solution.py and its verified execution evidence to write code_report.md with result and limitations.","depends_on":["job-001"],"inputs":["solution.py"],"outputs":["code_report.md"],"files":["code_report.md"],"tools":["read","write"],"acceptance_criteria":[{"type":"artifact_exists","path":"code_report.md"},{"type":"claim_evidence"},{"type":"goal_answering"}],"evidence_requirements":["solution.py and test output"],"success_check":"Typed criteria pass.","owner_role":"synthesis_agent","agent_profile":"synthesis_agent","worker_template":"managed_single_file","require_change":true,"fallback_plan":"Remain blocked until code test passes."}
+    ]
+  },
+  "dag_validation_report":{"passed":true,"status":"pass","job_count":2,"topological_order":["job-001","job-002"],"errors":[],"model_calls_started":0},
+  "jobs":[],
+  "expectations":{"meeting_status":"MEETING_READY","loop_bounded":true,"max_execution_jobs_run":3}
+}

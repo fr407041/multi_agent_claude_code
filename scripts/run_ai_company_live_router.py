@@ -55,7 +55,12 @@ def run_worker(job_path: Path, kind: str) -> int:
     ).returncode
 
 
-def run_summary_repair(run_dir: Path, jobs_dir: Path, execution_log: list[dict[str, Any]], artifact: dict[str, Any]) -> None:
+def run_summary_repair(
+    run_dir: Path,
+    jobs_dir: Path,
+    execution_log: list[dict[str, Any]],
+    artifact: dict[str, Any],
+) -> None:
     parsed = artifact.get("parsed") or {}
     checks = parsed.get("checks") or {}
     failed_checks = [name for name, ok in checks.items() if not ok]
@@ -117,12 +122,24 @@ def build_claim_ledger(run_id: str, statuses: list[dict[str, Any]]) -> dict[str,
     return {
         "run_id": run_id,
         "claims": claims,
-        "metrics": {"claim_count": claim_count, "claim_coverage_rate": round(with_evidence / claim_count, 3) if claim_count else 0.0, "uncertainty_gap_count": 0},
+        "metrics": {
+            "claim_count": claim_count,
+            "claim_coverage_rate": round(with_evidence / claim_count, 3) if claim_count else 0.0,
+            "uncertainty_gap_count": 0,
+        },
     }
 
 
 def failure_family_counts(statuses: list[dict[str, Any]], reviewer: dict[str, Any]) -> dict[str, int]:
-    counts = {"pseudo_tool_call": 0, "missing_expected_artifact": 0, "router": 0, "overflow": 0, "timeout": 0, "failed": 0, "repair_required": 0}
+    counts = {
+        "pseudo_tool_call": 0,
+        "missing_expected_artifact": 0,
+        "router": 0,
+        "overflow": 0,
+        "timeout": 0,
+        "failed": 0,
+        "repair_required": 0,
+    }
     for status in statuses:
         if status.get("failure_family") == "pseudo_tool_call" or status.get("status") == "PSEUDO_TOOL_CALL_DETECTED":
             counts["pseudo_tool_call"] += 1
@@ -182,7 +199,12 @@ def verify_summary(run_dir: Path) -> dict[str, Any]:
         except json.JSONDecodeError:
             parsed = None
     if parsed is None:
-        parsed = {"summary_file": str(summary_path), "score": 0.0, "all_passed": False, "checks": {"summary_file_exists": summary_path.exists(), "verify_json_parse": False}}
+        parsed = {
+            "summary_file": str(summary_path),
+            "score": 0.0,
+            "all_passed": False,
+            "checks": {"summary_file_exists": summary_path.exists(), "verify_json_parse": False},
+        }
     return {"command": command, "stdout": proc.stdout, "stderr": proc.stderr, "parsed": parsed}
 
 
@@ -210,9 +232,24 @@ def main() -> int:
         job["scope_path"] = str(worktree)
         job_path = jobs_dir / f"{job['id']}.json"
         write_json(job_path, job)
-        assignments.append({"task_id": job["id"], "owner_role": job.get("owner_role"), "agent_profile": job.get("agent_profile"), "profile_mode": job.get("profile_mode"), "state": "running"})
+        assignments.append(
+            {
+                "task_id": job["id"],
+                "owner_role": job.get("owner_role"),
+                "agent_profile": job.get("agent_profile"),
+                "profile_mode": job.get("profile_mode"),
+                "state": "running",
+            }
+        )
 
-    meeting = {"run_id": run_id, "meeting_status": "MEETING_READY", "rounds_used": 1, "run_profile_mode": spec.get("agent_profile_mode", "strict"), "task_assignments": assignments, "discussion_log": ["public live runner materialized strict task assignments"]}
+    meeting = {
+        "run_id": run_id,
+        "meeting_status": "MEETING_READY",
+        "rounds_used": 1,
+        "run_profile_mode": spec.get("agent_profile_mode", "strict"),
+        "task_assignments": assignments,
+        "discussion_log": ["public live runner materialized strict task assignments"],
+    }
     write_json(ai_dir / "meeting_decision.json", meeting)
 
     execution_log = []

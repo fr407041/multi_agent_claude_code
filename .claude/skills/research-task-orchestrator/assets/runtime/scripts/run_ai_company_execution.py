@@ -4,6 +4,10 @@ import json
 import os
 import subprocess
 import sys
+import hashlib
+import shutil
+import time
+import urllib.request
 from pathlib import Path
 from shutil import which
 
@@ -11,6 +15,7 @@ from agent_token_ledger import token_usage_from_text
 from agent_profile_resolver import apply_profile_to_job, load_agent_profiles, profile_prompt_note, profile_policy_issues
 from bounded_context_loader import build_bounded_context, load_context_defaults
 from subagent_claim_ledger import write_claim_ledger
+from goal_driven_workflow import descendants, read_json as read_goal_json, recovery_fingerprint, write_json as write_goal_json
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -340,6 +345,19 @@ def write_mock_status(run_dir: Path, job: dict, status: str, verification_note: 
         if "summary.md" not in written_files:
             written_files.append("summary.md")
         actual_changed_files = written_files
+    elif status == "SUCCESS" and job.get("capability"):
+        scope_path = Path(str(job.get("scope_path", run_dir / "worktree")))
+        scope_path.mkdir(parents=True, exist_ok=True)
+        written_files = []
+        for rel_file in job.get("outputs", job.get("files", [])):
+            target = scope_path / rel_file
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.suffix.lower() == ".json":
+                target.write_text(json.dumps({"status": "pass", "goal_answered": True, "evidence": job.get("inputs", [])}, indent=2), encoding="utf-8")
+            else:
+                target.write_text(f"# Goal result\n\nVerified result for the assigned goal using evidence from: {', '.join(job.get('inputs', [])) or 'declared scope'}.\n", encoding="utf-8")
+            written_files.append(rel_file)
+        actual_changed_files = written_files
     role = str(job.get("agent_profile") or job.get("owner_role") or "default")
     defaults = load_context_defaults()
     context_info = build_bounded_context(
@@ -472,8 +490,53 @@ def execute_job(run_dir: Path, scripts_dir: Path, job_path: Path) -> Path:
     results_dir.mkdir(parents=True, exist_ok=True)
     status_path = results_dir / f"{job['id']}.status.json"
 
+    if job.get("capability") == "acquire" and job.get("source_url"):
+        output = str((job.get("outputs") or job.get("files") or [""])[0])
+        target = Path(str(job.get("scope_path", run_dir / "worktree"))) / output
+        raw_file = results_dir / f"{job['id']}.raw.txt"
+        log_file = results_dir / f"{job['id']}.exec.log"
+        started = time.monotonic()
+        try:
+            with urllib.request.urlopen(str(job["source_url"]), timeout=int(os.environ.get("AI_COMPANY_NETWORK_TIMEOUT_SEC", "30"))) as response:
+                body = response.read(int(os.environ.get("AI_COMPANY_NETWORK_MAX_BYTES", "1048576")) + 1)
+                if len(body) > int(os.environ.get("AI_COMPANY_NETWORK_MAX_BYTES", "1048576")):
+                    raise ValueError("network response exceeded bounded byte limit")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(body)
+            raw_file.write_bytes(body)
+            log_file.write_text(f"GET {job['source_url']}\nbytes={len(body)}\n", encoding="utf-8")
+            status = {
+                "id": job["id"], "status": "SUCCESS", "scope_path": job.get("scope_path", ""), "files": [output],
+                "owner_role": job.get("owner_role", ""), "agent_profile": job.get("agent_profile", ""),
+                "actual_changed_files": [output], "actual_changed_count": 1, "failure_family": "",
+                "verification_note": "bounded network acquisition completed", "source_url": job["source_url"],
+                "raw_file": str(raw_file), "exec_log_file": str(log_file), "exit_code": 0, "test_exit_code": 0,
+                "test_executed_command": "", "duration_sec": round(time.monotonic() - started, 3),
+                "key_claims": [{"claim": f"Acquired {len(body)} bytes from the declared source.", "evidence_refs": [str(raw_file), str(target)]}],
+                "confidence": "medium", "limitations": ["Evidence is limited to the declared bounded response."],
+                "token_usage": token_usage_from_text(job.get("instruction", ""), body.decode("utf-8", errors="ignore")),
+            }
+        except Exception as exc:  # noqa: BLE001
+            raw_file.write_text(str(exc), encoding="utf-8")
+            log_file.write_text(str(exc), encoding="utf-8")
+            status = {
+                "id": job["id"], "status": "FAILED", "scope_path": job.get("scope_path", ""), "files": [output],
+                "owner_role": job.get("owner_role", ""), "agent_profile": job.get("agent_profile", ""),
+                "actual_changed_files": [], "actual_changed_count": 0, "failure_family": "external_dependency",
+                "verification_note": f"external dependency acquisition failed: {exc}", "source_url": job["source_url"],
+                "raw_file": str(raw_file), "exec_log_file": str(log_file), "exit_code": 1, "test_exit_code": 1,
+                "test_executed_command": "", "duration_sec": round(time.monotonic() - started, 3), "key_claims": [],
+                "confidence": "low", "limitations": [str(exc)], "token_usage": token_usage_from_text(job.get("instruction", ""), str(exc)),
+            }
+        write_json(status_path, status)
+        return enrich_status_with_profile(job, status_path)
+
     if os.environ.get("AI_COMPANY_EXECUTION_MOCK", "0") == "1":
-        mock_status = job.get("mock_status", "SUCCESS")
+        sequence = list(job.get("mock_status_sequence", []))
+        mock_status = sequence.pop(0) if sequence else job.get("mock_status", "SUCCESS")
+        if job.get("mock_status_sequence") is not None:
+            job["mock_status_sequence"] = sequence
+            write_json(job_path, job)
         note_map = {
             "SUCCESS": "mock success",
             "NEEDS_REPLAN": "worker requested replan in mock mode",
@@ -567,6 +630,152 @@ def build_summary(run_dir: Path, execution_log: list[dict], reviewer: dict, reas
     }
 
 
+def _verdict_for(reviewer: dict, task_id: str) -> dict:
+    return next((item for item in reviewer.get("verdicts", []) if item.get("task_id") == task_id), {})
+
+
+def _archive_attempt(run_dir: Path, task_id: str, attempt: int) -> None:
+    destination = run_dir / "results" / "attempts" / task_id / f"attempt-{attempt:02d}"
+    destination.mkdir(parents=True, exist_ok=True)
+    for path in (run_dir / "results").glob(f"{task_id}.*"):
+        if path.is_file():
+            shutil.copy2(path, destination / path.name)
+
+
+def _write_blocked_status(run_dir: Path, job: dict, failed_dependencies: list[str]) -> None:
+    status_path = run_dir / "results" / f"{job['id']}.status.json"
+    payload = {
+        "id": job["id"], "status": "BLOCKED_BY_DEPENDENCY", "scope_path": job.get("scope_path", ""),
+        "files": job.get("files", []), "owner_role": job.get("owner_role", ""), "agent_profile": job.get("agent_profile", ""),
+        "profile_mode": job.get("profile_mode", ""), "effective_policy_level": job.get("effective_policy_level", ""),
+        "effective_tool_policy": job.get("effective_tool_policy", ""),
+        "actual_changed_files": [], "actual_changed_count": 0, "failure_family": "dependency",
+        "verification_note": f"Blocked until dependencies pass: {', '.join(failed_dependencies)}",
+        "failed_dependencies": failed_dependencies, "key_claims": [], "confidence": "low", "limitations": ["Dependency contract did not pass."],
+        "raw_file": "", "exec_log_file": "", "exit_code": 1,
+        "token_usage": token_usage_from_text(job.get("instruction", ""), ""),
+    }
+    write_json(status_path, payload)
+
+
+def execute_goal_driven(run_dir: Path, scripts_dir: Path, job_map: dict[str, Path]) -> tuple[list[dict], dict, int]:
+    goal_plan = read_json(run_dir / "ai_company" / "goal_plan.json")
+    jobs = goal_plan.get("jobs", [])
+    order = read_json(run_dir / "ai_company" / "dag_validation_report.json").get("topological_order", [])
+    jobs_by_id = {str(job["id"]): read_json(job_map[str(job["id"])]) for job in jobs}
+    accepted: set[str] = set()
+    states: dict[str, dict] = {}
+    execution_log: list[dict] = []
+    recovery_events: list[dict] = []
+    seen_fingerprints: set[str] = set()
+    max_total = int(os.environ.get("AI_COMPANY_MAX_REASSIGNMENTS_PER_RUN", "2"))
+    summary = read_json(run_dir / "summary.json")
+    max_per_job = int((summary.get("recovery") or {}).get("max_attempts_per_job", 2))
+    recoveries = 0
+
+    for task_id in order:
+        job = jobs_by_id[task_id]
+        failed_dependencies = [dep for dep in job.get("depends_on", []) if dep not in accepted]
+        if failed_dependencies:
+            _write_blocked_status(run_dir, job, failed_dependencies)
+            states[task_id] = {"state": "blocked", "failed_dependencies": failed_dependencies}
+            execution_log.append({"task_id": task_id, "owner_role": job.get("owner_role"), "mode": "blocked", "status": "BLOCKED_BY_DEPENDENCY"})
+            continue
+
+        execute_job(run_dir, scripts_dir, job_map[task_id])
+        write_claim_ledger(run_dir)
+        reviewer = run_reviewer(run_dir, scripts_dir)
+        verdict = _verdict_for(reviewer, task_id)
+        execution_log.append({"task_id": task_id, "owner_role": job.get("owner_role"), "mode": "initial", "status": verdict.get("verdict")})
+        if verdict.get("verdict") == "ACCEPTED":
+            accepted.add(task_id)
+            states[task_id] = {"state": "accepted", "attempts": 1}
+            continue
+
+        recovery_id = str(verdict.get("recommended_recovery_job") or task_id)
+        recovery_job = jobs_by_id.get(recovery_id, job)
+        recovered = False
+        for attempt in range(1, max_per_job + 1):
+            if recoveries >= max_total:
+                recovery_events.append({"job_id": recovery_id, "action": "RECOVERY_BUDGET_EXHAUSTED", "attempt": attempt})
+                break
+            failed_checks = verdict.get("failed_checks", [])
+            missing_inputs = verdict.get("missing_inputs", [])
+            recovery_core = (
+                f"DEPENDENCY_AWARE_RECOVERY. Repair only job {recovery_id}. "
+                f"Missing inputs: {missing_inputs}. Failed checks: {json.dumps(failed_checks, ensure_ascii=False)}. "
+                "Paths in artifact_exists failures are outputs to create, not prerequisite inputs. "
+                "Do not replay full logs; satisfy the declared typed criteria and preserve evidence refs."
+            )
+            fingerprint = recovery_fingerprint(recovery_job, missing_inputs, failed_checks, recovery_core)
+            if fingerprint in seen_fingerprints:
+                recovery_events.append({"job_id": recovery_id, "action": "UNCHANGED_RETRY_BLOCKED", "attempt": attempt, "fingerprint": fingerprint})
+                break
+            seen_fingerprints.add(fingerprint)
+            recoveries += 1
+            _archive_attempt(run_dir, recovery_id, attempt)
+            recovery_path = job_map[recovery_id]
+            recovery_payload = read_json(recovery_path)
+            recovery_payload["instruction"] = f"{recovery_core}\nAttempt: {attempt}.\n\nOriginal instruction:\n" + str(recovery_payload.get("instruction", ""))
+            recovery_payload["recovery_fingerprint"] = fingerprint
+            write_json(recovery_path, recovery_payload)
+            status_path = run_dir / "results" / f"{recovery_id}.status.json"
+            if status_path.exists():
+                status_path.unlink()
+            execute_job(run_dir, scripts_dir, recovery_path)
+            write_claim_ledger(run_dir)
+            reviewer = run_reviewer(run_dir, scripts_dir)
+            verdict = _verdict_for(reviewer, recovery_id)
+            affected = descendants(jobs, recovery_id)
+            recovery_events.append({
+                "job_id": recovery_id, "action": "reexecuted_dependency", "attempt": attempt,
+                "fingerprint": fingerprint, "verdict": verdict.get("verdict"), "invalidated_descendants": affected,
+            })
+            execution_log.append({"task_id": recovery_id, "owner_role": recovery_job.get("owner_role"), "mode": "dependency_recovery", "status": verdict.get("verdict")})
+            if verdict.get("verdict") == "ACCEPTED":
+                accepted.add(recovery_id)
+                states[recovery_id] = {"state": "accepted", "attempts": attempt + 1}
+                for descendant in affected:
+                    descendant_status = run_dir / "results" / f"{descendant}.status.json"
+                    if descendant_status.exists() and read_json(descendant_status).get("status") == "BLOCKED_BY_DEPENDENCY":
+                        descendant_status.unlink()
+                recovered = True
+                break
+        if not recovered:
+            states[task_id] = {"state": "failed", "verdict": verdict.get("verdict"), "attempts": 1}
+
+    # A repaired producer may unblock descendants that were encountered earlier.
+    for task_id in order:
+        if states.get(task_id, {}).get("state") != "blocked":
+            continue
+        job = jobs_by_id[task_id]
+        failed_dependencies = [dep for dep in job.get("depends_on", []) if dep not in accepted]
+        if failed_dependencies:
+            states[task_id] = {"state": "blocked", "failed_dependencies": failed_dependencies}
+            continue
+        status_path = run_dir / "results" / f"{task_id}.status.json"
+        if status_path.exists():
+            status_path.unlink()
+        execute_job(run_dir, scripts_dir, job_map[task_id])
+        write_claim_ledger(run_dir)
+        reviewer = run_reviewer(run_dir, scripts_dir)
+        verdict = _verdict_for(reviewer, task_id)
+        execution_log.append({"task_id": task_id, "owner_role": job.get("owner_role"), "mode": "unblocked_descendant", "status": verdict.get("verdict")})
+        if verdict.get("verdict") == "ACCEPTED":
+            accepted.add(task_id)
+            states[task_id] = {"state": "accepted", "attempts": 1}
+        else:
+            states[task_id] = {"state": "failed", "verdict": verdict.get("verdict"), "attempts": 1}
+
+    reviewer = run_reviewer(run_dir, scripts_dir)
+    blocked = [job_id for job_id in order if job_id not in accepted and states.get(job_id, {}).get("state") == "blocked"]
+    dependency_state = {"run_id": run_dir.name, "states": states, "accepted": sorted(accepted), "blocked_descendants": blocked}
+    write_goal_json(run_dir / "ai_company" / "dependency_state.json", dependency_state)
+    trace_path = run_dir / "ai_company" / "recovery_trace.jsonl"
+    trace_path.write_text("".join(json.dumps(item, ensure_ascii=False) + "\n" for item in recovery_events), encoding="utf-8")
+    return execution_log, reviewer, recoveries
+
+
 def main() -> None:
     if len(sys.argv) not in {2, 3}:
         raise SystemExit("Usage: run_ai_company_execution.py <run_dir> [out_file]")
@@ -577,6 +786,17 @@ def main() -> None:
     meeting = read_json(meeting_path)
     assignments = meeting.get("task_assignments", [])
     job_map = sync_assignments_to_jobs(run_dir, assignments)
+
+    run_summary = read_json(run_dir / "summary.json")
+    if (run_summary.get("workflow") or {}).get("mode") == "goal_driven":
+        execution_log, reviewer, recovery_count = execute_goal_driven(run_dir, scripts_dir, job_map)
+        summary = build_summary(run_dir, execution_log, reviewer, recovery_count)
+        summary["workflow_mode"] = "goal_driven"
+        summary["dependency_state_file"] = "ai_company/dependency_state.json"
+        summary["recovery_trace_file"] = "ai_company/recovery_trace.jsonl"
+        write_json(out_file, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return
 
     execution_log: list[dict] = []
     non_review_tasks = [item for item in assignments if item.get("owner_role") != "reviewer_worker"]

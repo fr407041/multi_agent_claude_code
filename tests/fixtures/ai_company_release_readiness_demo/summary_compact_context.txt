@@ -1,0 +1,10 @@
+# Release readiness research brief
+Release target: AgentOps Dashboard v1.3 for internal Ubuntu users.
+Functional tests: 42 unit tests passed, 0 failed.
+Backend API tests: 11 passed, 0 failed.
+Historical fixture frontend build: passed in 18.4 seconds; current checkout dashboard runtime is not verified.
+Historical fixture dashboard smoke: backend health returned 200 and frontend returned 200; current checkout dashboard runtime is not verified.
+Live router smoke: 4 of 5 prompts succeeded; 1 partial response was retried successfully.
+Failure drill evidence: deleting one status file produced MISSING_STATUS_FILE and watchdog generated a fallback failure status.
+Blocker B1: live strict-profile violation drill has not completed against the production router path.
+Required keywords: conditional go, blocker, evidence, rollback, uncertainty, router, overflow

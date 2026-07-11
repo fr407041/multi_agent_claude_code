@@ -1,0 +1,13 @@
+{
+  "task_id": "task-001",
+  "review_status": "COMPLETE",
+  "owner_role": "executor_backend",
+  "verdict": "REPAIR_REQUIRED",
+  "evidence": [
+    "raw_output.txt present",
+    "worker status exists",
+    "test command failed"
+  ],
+  "repair_action": "補齊測試並重新提交狀態檔。",
+  "replan_required": false
+}

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Company Task Assignment",
+  "type": "object",
+  "required": [
+    "task_id",
+    "owner_role",
+    "scope",
+    "depends_on",
+    "acceptance_criteria",
+    "fallback_plan"
+  ],
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "owner_role": {
+      "type": "string",
+      "enum": [
+        "research_agent",
+        "synthesis_agent",
+        "planner_agent",
+        "executor_backend",
+        "executor_frontend",
+        "executor_docs",
+        "reviewer_worker",
+        "risk_reviewer",
+        "decision_agent"
+      ]
+    },
+    "scope": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "depends_on": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "anyOf": [
+          { "type": "string", "minLength": 1 },
+          {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string" },
+              "path": { "type": "string" },
+              "json_path": { "type": "string" },
+              "expected": {},
+              "operator": { "type": "string" },
+              "value": {}
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "capability": { "type": "string", "enum": ["acquire", "analyze", "generate", "execute", "verify", "synthesize"] },
+    "inputs": { "type": "array", "items": { "type": "string" } },
+    "outputs": { "type": "array", "items": { "type": "string" } },
+    "tools": { "type": "array", "items": { "type": "string" } },
+    "evidence_requirements": { "type": "array", "items": { "type": "string" } },
+    "source_url": { "type": "string" },
+    "test_command": { "type": "string" },
+    "mock_status_sequence": { "type": "array", "items": { "type": "string" } },
+    "fallback_plan": { "type": "string", "minLength": 1 }
+    ,
+    "agent_profile": { "type": ["string", "null"] },
+    "profile_mode": {
+      "type": "string",
+      "enum": ["auto", "simple", "strict"]
+    },
+    "effective_policy_level": { "type": "string" },
+    "effective_allowed_skills": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "effective_allowed_mcp_groups": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "effective_tool_policy": {
+      "type": "string",
+      "enum": ["none", "limited", "full"]
+    },
+    "profile_resolved_from": { "type": "string" },
+    "profile_settings_overlay": { "type": "string" },
+    "profile_role_prompt": { "type": "string" },
+    "profile_contract": { "type": "object" },
+    "profile_scope_limits": { "type": "object" },
+    "profile_recovery_policy": { "type": "object" }
+  },
+  "additionalProperties": false
+}

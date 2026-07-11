@@ -1,0 +1,36 @@
+{
+  "spec_id": "sens-insider-live",
+  "purpose": "Result-quality-first validation matrix for the SENS research task.",
+  "cases": [
+    {
+      "case_id": "happy_path_prefetched",
+      "expected_result": "pass",
+      "focus": "Evidence-complete run should pass all process and content gates."
+    },
+    {
+      "case_id": "summary_too_short_false_success",
+      "expected_result": "fail",
+      "focus": "Placeholder or overly short output must be blocked as false success."
+    },
+    {
+      "case_id": "missing_price_reaction",
+      "expected_result": "fail",
+      "focus": "Summary that omits event-to-price linkage must fail."
+    },
+    {
+      "case_id": "missing_uncertainty",
+      "expected_result": "fail",
+      "focus": "Summary that omits limitations or caution language must fail."
+    },
+    {
+      "case_id": "reasoning_heavy_output_pressure",
+      "expected_result": "recoverable_fail_or_rewrite",
+      "focus": "Long reasoning or format drift must trigger bounded rewrite instead of silent acceptance."
+    },
+    {
+      "case_id": "router_partial_or_empty_response",
+      "expected_result": "recoverable_fail",
+      "focus": "Router transport issues must not be counted as success and must remain bounded."
+    }
+  ]
+}

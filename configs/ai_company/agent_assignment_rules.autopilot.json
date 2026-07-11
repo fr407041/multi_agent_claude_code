@@ -1,0 +1,45 @@
+{
+  "goal_id": "ai-company-autopilot",
+  "rules": [
+    {
+      "match": "task_type in ['research_summary', 'research_conflict']",
+      "primary_agents": [
+        "research_agent",
+        "synthesis_agent"
+      ],
+      "review_agents": [
+        "reviewer_worker",
+        "risk_reviewer"
+      ]
+    },
+    {
+      "match": "task_type in ['implementation_small', 'single_file_change']",
+      "primary_agents": [
+        "executor_backend"
+      ],
+      "review_agents": [
+        "reviewer_worker"
+      ]
+    },
+    {
+      "match": "task_type in ['failure_recovery', 'router_recovery', 'overflow_recovery']",
+      "primary_agents": [
+        "risk_reviewer",
+        "decision_agent"
+      ],
+      "review_agents": [
+        "reviewer_worker"
+      ]
+    },
+    {
+      "match": "meeting_required = true",
+      "primary_agents": [
+        "meeting_coordinator",
+        "planner_agent"
+      ],
+      "review_agents": [
+        "decision_agent"
+      ]
+    }
+  ]
+}

@@ -126,6 +126,20 @@ Large artifact contracts automatically use bounded staged execution. Override wi
 
 For business or domain acceptance, add runner-owned gates instead of trusting model-written KPI fields: `--result-status FILE:PATH`, `--compare-json ACTUAL:EXPECTED`, `--require-json-path FILE:PATH`, and restricted `--invariant 'FILE:PATH>0'`. These checks produce `ai_company/domain_verdict.json`; a failed domain verdict always fails the run even when files and provenance are valid.
 
+## Goal-driven workflow
+
+Start a bounded dependency DAG directly from one goal:
+
+```bash
+python3 scripts/run_goal_driven_workflow.py \
+  --goal "Analyze the supplied evidence and produce a verified decision" \
+  --mode live \
+  --scope-copy-from path/to/bounded/input \
+  --supplied-input source.txt
+```
+
+The live planner and workers use the existing Claude Code Router configuration; no model name or model-service URL is required. The deterministic control plane validates capabilities, paths, tools, producers, cycles, typed criteria, dependency acceptance, recovery fingerprints, and the final generic contract. Common runs never implicitly select a fixture verifier.
+
 The model must return strict JSON actions. The runner validates and executes only allowlisted actions:
 
 ```text

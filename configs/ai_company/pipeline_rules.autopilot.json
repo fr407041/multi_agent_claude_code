@@ -1,0 +1,92 @@
+{
+  "goal_id": "ai-company-autopilot",
+  "pipelines": [
+    {
+      "pipeline_id": "research_summary",
+      "task_types": [
+        "research_summary",
+        "evidence_summary"
+      ],
+      "steps": [
+        "task_classified",
+        "pipeline_attached",
+        "evidence_prep",
+        "meeting_if_needed",
+        "synthesis",
+        "review",
+        "verify_completed"
+      ],
+      "default_agents": [
+        "research_agent",
+        "synthesis_agent",
+        "reviewer_worker"
+      ]
+    },
+    {
+      "pipeline_id": "research_conflict_resolution",
+      "task_types": [
+        "research_conflict",
+        "multi_source_analysis"
+      ],
+      "steps": [
+        "task_classified",
+        "pipeline_attached",
+        "evidence_prep",
+        "meeting_started",
+        "meeting_completed",
+        "dispatch_split_tasks",
+        "review",
+        "verify_completed"
+      ],
+      "default_agents": [
+        "meeting_coordinator",
+        "risk_reviewer",
+        "research_agent",
+        "synthesis_agent",
+        "reviewer_worker"
+      ]
+    },
+    {
+      "pipeline_id": "implementation_small",
+      "task_types": [
+        "implementation_small",
+        "single_file_change"
+      ],
+      "steps": [
+        "task_classified",
+        "pipeline_attached",
+        "plan",
+        "execute",
+        "review",
+        "verify_completed"
+      ],
+      "default_agents": [
+        "executor_backend",
+        "reviewer_worker"
+      ]
+    },
+    {
+      "pipeline_id": "failure_recovery",
+      "task_types": [
+        "failure_recovery",
+        "router_recovery",
+        "overflow_recovery"
+      ],
+      "steps": [
+        "task_classified",
+        "pipeline_attached",
+        "failure_detected",
+        "meeting_if_needed",
+        "replan_or_recovery_started",
+        "dispatch_recovery_task",
+        "review",
+        "verify_completed"
+      ],
+      "default_agents": [
+        "risk_reviewer",
+        "decision_agent",
+        "reviewer_worker"
+      ]
+    }
+  ]
+}
