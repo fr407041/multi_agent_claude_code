@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 
 PACKAGE_SCHEMA_VERSION = 1
-RELEASE_ID = "2026.07.11-company.11"
+RELEASE_ID = "2026.07.11-company.12"
 MANIFEST_PATH = Path("release") / "ai_company_package_manifest.json"
 
 CANONICAL_ROLES = [
@@ -47,6 +47,7 @@ RUNTIME_REQUIRED_PATHS = [
     "scripts/worker_claude_router.sh",
     "scripts/worker_claude_router_summary_template.sh",
     "scripts/worker_claude_router_managed_single_file.sh",
+    "scripts/worker_claude_router_managed_multi_file.sh",
     "configs/ai_company/agent_profiles.json",
     "configs/ai_company/task_harness.defaults.json",
     "configs/ai_company/task_assignment.schema.json",

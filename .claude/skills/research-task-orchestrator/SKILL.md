@@ -217,6 +217,8 @@ When the user supplies only a natural-language goal and asks for automatic plann
 python3 scripts/run_goal_driven_workflow.py --goal "<goal>" --mode live
 ```
 
+Goal-driven live planning is bounded by `--max-replans`. Preserve every planner attempt and reject invalid network, worker/output, profile, or DAG contracts before workers start. Use `managed_single_file` for one output and `managed_multi_file` for two outputs. A verified partial delivery remains `partial` / `NEEDS REPAIR`; never promote it to pass.
+
 Use `--scope-copy-from` and repeated `--supplied-input` for bounded supplied evidence. The planner must produce only the generic acquire/analyze/generate/execute/verify/synthesize capabilities. Do not bypass `dag_validation_report.json`, and do not treat process exit zero as acceptance. Final status comes only from `ai_company/final_run_verdict.json`.
 
 Common workflows use `generic_contract`. Fixture verifiers require explicit spec selection and must never be inferred from a filename or `summary.md`.

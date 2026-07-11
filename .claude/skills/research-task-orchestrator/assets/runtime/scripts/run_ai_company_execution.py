@@ -164,6 +164,8 @@ def choose_worker_script(scripts_dir: Path, job: dict) -> Path:
         return resolve_worker_script("worker_claude_router_summary_template.sh", scripts_dir)
     if worker_template == "managed_single_file":
         return resolve_worker_script("worker_claude_router_managed_single_file.sh", scripts_dir)
+    if worker_template == "managed_multi_file":
+        return resolve_worker_script("worker_claude_router_managed_multi_file.sh", scripts_dir)
     if worker_template in {"bounded_worker", "inspection_only"}:
         return resolve_worker_script("worker_claude_router.sh", scripts_dir)
     raise RuntimeError(
@@ -694,6 +696,12 @@ def execute_goal_driven(run_dir: Path, scripts_dir: Path, job_map: dict[str, Pat
 
         recovery_id = str(verdict.get("recommended_recovery_job") or task_id)
         recovery_job = jobs_by_id.get(recovery_id, job)
+        base_instruction = str(recovery_job.get("instruction", ""))
+        initial_fingerprint = recovery_fingerprint(
+            recovery_job, verdict.get("missing_inputs", []), verdict.get("failed_checks", []),
+            base_instruction, run_dir / "worktree",
+        )
+        seen_fingerprints.add(initial_fingerprint)
         recovered = False
         for attempt in range(1, max_per_job + 1):
             if recoveries >= max_total:
@@ -707,7 +715,8 @@ def execute_goal_driven(run_dir: Path, scripts_dir: Path, job_map: dict[str, Pat
                 "Paths in artifact_exists failures are outputs to create, not prerequisite inputs. "
                 "Do not replay full logs; satisfy the declared typed criteria and preserve evidence refs."
             )
-            fingerprint = recovery_fingerprint(recovery_job, missing_inputs, failed_checks, recovery_core)
+            candidate_instruction = f"{recovery_core}\n\nOriginal instruction:\n{base_instruction}"
+            fingerprint = recovery_fingerprint(recovery_job, missing_inputs, failed_checks, candidate_instruction, run_dir / "worktree")
             if fingerprint in seen_fingerprints:
                 recovery_events.append({"job_id": recovery_id, "action": "UNCHANGED_RETRY_BLOCKED", "attempt": attempt, "fingerprint": fingerprint})
                 break
@@ -716,7 +725,7 @@ def execute_goal_driven(run_dir: Path, scripts_dir: Path, job_map: dict[str, Pat
             _archive_attempt(run_dir, recovery_id, attempt)
             recovery_path = job_map[recovery_id]
             recovery_payload = read_json(recovery_path)
-            recovery_payload["instruction"] = f"{recovery_core}\nAttempt: {attempt}.\n\nOriginal instruction:\n" + str(recovery_payload.get("instruction", ""))
+            recovery_payload["instruction"] = candidate_instruction
             recovery_payload["recovery_fingerprint"] = fingerprint
             write_json(recovery_path, recovery_payload)
             status_path = run_dir / "results" / f"{recovery_id}.status.json"

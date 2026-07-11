@@ -105,9 +105,11 @@ def validate_goal_plan(plan: dict[str, Any], max_jobs: int = 8) -> dict[str, Any
         if test_command and (re.search(r"[;&|`$<>]", test_command) or not re.match(r"^(python3?|pytest)(?:\s|$)", test_command)):
             errors.append({"code": "DAG_TEST_COMMAND_UNSAFE", "detail": f"{job_id}:{test_command}"})
         source_url = str(job.get("source_url", "")).strip()
-        if capability == "acquire" and "network" in job.get("tools", []):
+        if "network" in job.get("tools", []):
             parsed_url = urllib.parse.urlparse(source_url)
             allowed_hosts = {item.strip() for item in os.environ.get("AI_COMPANY_ALLOWED_NETWORK_HOSTS", "127.0.0.1,localhost").split(",") if item.strip()}
+            if capability != "acquire":
+                errors.append({"code": "DAG_NETWORK_CAPABILITY_INVALID", "detail": f"{job_id}:{capability}"})
             if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname or parsed_url.hostname not in allowed_hosts:
                 errors.append({"code": "DAG_NETWORK_SOURCE_UNSAFE", "detail": f"{job_id}:{source_url or '<missing>'}"})
         covered_outputs = {
@@ -185,7 +187,7 @@ def normalize_goal_plan(goal: str, payload: dict[str, Any], max_jobs: int, suppl
                 "success_check": "All declared acceptance criteria pass.",
                 "owner_role": owner,
                 "agent_profile": owner,
-                "worker_template": "managed_single_file" if len(outputs) == 1 else "bounded_worker",
+                "worker_template": "managed_single_file" if len(outputs) == 1 else "managed_multi_file",
                 "require_change": capability != "verify" and bool(outputs),
                 "fallback_plan": "Repair the earliest failed dependency and selectively rerun affected descendants.",
                 "test_command": str(raw.get("test_command", "")),
@@ -299,10 +301,28 @@ def verify_job_contract(run_dir: Path, job: dict[str, Any], status: dict[str, An
     }
 
 
-def recovery_fingerprint(job: dict[str, Any], missing_inputs: list[str], failed_checks: list[dict[str, Any]], instruction: str) -> str:
+def recovery_fingerprint(
+    job: dict[str, Any],
+    missing_inputs: list[str],
+    failed_checks: list[dict[str, Any]],
+    instruction: str,
+    worktree: Path | None = None,
+) -> str:
+    stable_checks = [
+        {"type": item.get("type", ""), "path": item.get("path", ""), "status": item.get("status", "")}
+        for item in failed_checks if isinstance(item, dict)
+    ]
+    input_hashes: dict[str, str] = {}
+    if worktree is not None:
+        for rel in map(str, job.get("inputs", [])):
+            path = worktree / rel
+            input_hashes[rel] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "<missing>"
     payload = {
-        "job_id": job.get("id"), "inputs": job.get("inputs", []), "criteria": job.get("acceptance_criteria", []),
-        "missing_inputs": missing_inputs, "failed_checks": failed_checks, "instruction": instruction,
+        "job_id": job.get("id"), "inputs": job.get("inputs", []), "input_hashes": input_hashes,
+        "outputs": job.get("outputs", []), "criteria": job.get("acceptance_criteria", []),
+        "worker_template": job.get("worker_template", ""), "agent_profile": job.get("agent_profile", ""),
+        "profile_mode": job.get("profile_mode", ""), "missing_inputs": sorted(missing_inputs),
+        "failed_checks": stable_checks, "instruction": instruction,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
@@ -332,7 +352,8 @@ def build_final_verdict(
     failed_jobs = [item for item in generic_report.get("jobs", []) if not item.get("all_passed")]
     root = failed_jobs[0] if failed_jobs else {}
     blocked = generic_report.get("blocked_descendants", [])
-    status = "pass" if dag_report.get("passed") and not failed_jobs and not blocked else "fail"
+    accepted_count = sum(1 for item in generic_report.get("jobs", []) if item.get("all_passed"))
+    status = "pass" if dag_report.get("passed") and not failed_jobs and not blocked else "partial" if accepted_count else "fail"
     return {
         "run_id": run_id, "overall_status": status, "root_failed_job": root.get("job_id", ""),
         "failure_category": root.get("failure_category", ""), "failed_checks": root.get("failed_checks", []),
@@ -340,5 +361,6 @@ def build_final_verdict(
         "missing_evidence": [item.get("path", "") for item in root.get("failed_checks", []) if item.get("type") == "claim_evidence"],
         "blocked_descendants": blocked, "recovery_action": recovery_events[-1].get("action", "") if recovery_events else "",
         "next_action": "Deliver result" if status == "pass" else (root.get("recommended_recovery_job") and f"Repair {root['recommended_recovery_job']}" or "Inspect root failure and recovery trace"),
+        "accepted_job_count": accepted_count,
         "source": "canonical_final_run_verdict",
     }

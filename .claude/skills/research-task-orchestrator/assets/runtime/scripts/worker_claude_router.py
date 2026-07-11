@@ -206,6 +206,27 @@ def extract_summary_content(raw: str) -> str:
     return (cleaned or text) + "\n"
 
 
+def extract_multi_artifacts(raw: str, expected_paths: list[str]) -> dict[str, str]:
+    match = re.search(r"ARTIFACTS_JSON_START\s*(.*?)\s*ARTIFACTS_JSON_END", raw, flags=re.S)
+    if not match:
+        raise ValueError("multi-file response is missing ARTIFACTS_JSON_START/END")
+    payload, consumed = json.JSONDecoder().raw_decode(match.group(1).lstrip())
+    if match.group(1).lstrip()[consumed:].strip():
+        raise ValueError("unexpected content after multi-file JSON envelope")
+    artifacts = payload.get("artifacts", []) if isinstance(payload, dict) else []
+    actual: dict[str, str] = {}
+    for item in artifacts:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not isinstance(item.get("content"), str):
+            raise ValueError("each multi-file artifact requires string path and content")
+        path = item["path"]
+        if path in actual:
+            raise ValueError(f"duplicate artifact path: {path}")
+        actual[path] = item["content"]
+    if set(actual) != set(expected_paths):
+        raise ValueError(f"artifact paths mismatch: expected={sorted(expected_paths)} actual={sorted(actual)}")
+    return actual
+
+
 def build_prompt_details(job: dict[str, Any], worker_kind: str, scope: Path) -> tuple[str, dict[str, Any]]:
     files = job.get("files", [])
     context_files = [str(item) for item in job.get("template_context_files", [])]
@@ -323,6 +344,29 @@ CONTENT_END
 Do not claim to call tools. The wrapper writes one declared artifact and runs the declared test command.
 If required input is missing, return STATUS: NEEDS_REPLAN instead of fabricating evidence.
 """
+    elif worker_kind == "multi":
+        prompt = f"""You are a bounded managed multi-artifact worker.
+
+Task:
+{job.get("instruction", "")}
+
+Declared outputs: {json.dumps(files, ensure_ascii=False)}
+Declared inputs: {json.dumps(job.get("inputs", []), ensure_ascii=False)}
+Acceptance criteria: {json.dumps(job.get("acceptance_criteria", []), ensure_ascii=False)}
+
+Context:
+{context}
+
+Return exactly:
+STATUS: SUCCESS
+ARTIFACTS_JSON_START
+{{"artifacts":[{{"path":"<first exact declared path>","content":"<complete content>"}},{{"path":"<second exact declared path>","content":"<complete content>"}}]}}
+ARTIFACTS_JSON_END
+
+Return every declared output exactly once and no other path. Use valid JSON escaping.
+Do not claim tool use. The wrapper validates paths and atomically writes the files.
+If evidence is insufficient, return STATUS: NEEDS_REPLAN instead of fabricating it.
+"""
     else:
         prompt = f"""You are a bounded Claude worker.
 
@@ -405,10 +449,27 @@ def main() -> int:
     raw_file.write_text(raw, encoding="utf-8")
     exec_log_file.write_text(raw, encoding="utf-8")
     status = status_from_raw(raw, exit_code)
+    failed_reason = ""
     if status == "SUCCESS" and worker_kind in {"summary", "managed"} and files:
         target = scope / files[0]
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(extract_summary_content(raw), encoding="utf-8")
+    if status == "SUCCESS" and worker_kind == "multi":
+        try:
+            artifacts = extract_multi_artifacts(raw, files)
+            staged: list[tuple[Path, Path]] = []
+            for rel, content in artifacts.items():
+                target = (scope / rel).resolve()
+                target.relative_to(scope)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temporary = target.with_name(target.name + f".tmp-{job_id}")
+                temporary.write_text(content, encoding="utf-8")
+                staged.append((temporary, target))
+            for temporary, target in staged:
+                temporary.replace(target)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            status = "FAILED"
+            failed_reason = f"multi-file contract failed: {exc}"
     after = file_state(scope, files)
     actual_changed_files = changed_files(before, after)
     pseudo_tool_call_detected = looks_like_pseudo_tool_call(raw)
@@ -422,7 +483,6 @@ def main() -> int:
         test_output_file.write_text("not-run\n", encoding="utf-8")
     if status == "SUCCESS" and pseudo_tool_call_detected:
         status = "PSEUDO_TOOL_CALL_DETECTED"
-    failed_reason = ""
     if status == "SUCCESS" and bool(job.get("require_change")) and not actual_changed_files:
         status = "FAILED"
         failed_reason = "required file did not change"

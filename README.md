@@ -138,7 +138,7 @@ python3 scripts/run_goal_driven_workflow.py \
   --supplied-input source.txt
 ```
 
-The live planner and workers use the existing Claude Code Router configuration; no model name or model-service URL is required. The deterministic control plane validates capabilities, paths, tools, producers, cycles, typed criteria, dependency acceptance, recovery fingerprints, and the final generic contract. Common runs never implicitly select a fixture verifier.
+The live planner and workers use the existing Claude Code Router configuration; no model name or model-service URL is required. Invalid planner DAGs are repaired within `--max-replans`, and every attempt is retained. Single- and two-output jobs use explicit managed write contracts. The deterministic control plane validates capabilities, paths, tools, producers, cycles, typed criteria, dependency acceptance, material recovery fingerprints, and the final generic contract. Common runs never implicitly select a fixture verifier. Verified partial work is reported as `partial` / `NEEDS REPAIR`, never as pass.
 
 The model must return strict JSON actions. The runner validates and executes only allowlisted actions:
 

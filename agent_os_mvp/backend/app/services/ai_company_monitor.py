@@ -43,7 +43,7 @@ FAILURE_FAMILY_ORDER = [
 TERMINAL_SUCCESS_VERDICTS = {"ACCEPTED", "COMPLETE"}
 TERMINAL_FAILURE_VERDICTS = {"FALSE_SUCCESS_BLOCKED", "REPLAN_REQUIRED", "REPAIR_REQUIRED", "PROFILE_POLICY_VIOLATION"}
 NON_TERMINAL_STATES = {"QUEUED", "PENDING", "RUNNING", "IN_PROGRESS", "REVIEW_PENDING"}
-PRIMARY_RUN_STATUSES = {"pass", "fail"}
+PRIMARY_RUN_STATUSES = {"pass", "fail", "partial"}
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -683,11 +683,12 @@ def _build_all_runs_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "total_runs": len(rows),
         "pass_count": status_counts.get("pass", 0),
-        "fail_count": status_counts.get("fail", 0),
+        "fail_count": status_counts.get("fail", 0) + status_counts.get("partial", 0),
         "unknown_count": status_counts.get("unknown", 0),
         "status_breakdown": {
             "pass": status_counts.get("pass", 0),
             "fail": status_counts.get("fail", 0),
+            "partial": status_counts.get("partial", 0),
             "unknown": status_counts.get("unknown", 0),
         },
         "unknown_runs": unknown_runs,

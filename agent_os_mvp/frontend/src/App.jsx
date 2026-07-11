@@ -170,6 +170,7 @@ function toRunVerdict(run, selectedRunSummary, finalResult, watchdog) {
   const canonicalStatus = normalizeStatus(finalResult.final_run_verdict?.overall_status);
   if (canonicalStatus === "pass") return "PASS";
   if (canonicalStatus === "fail") return "FAIL";
+  if (canonicalStatus === "partial") return "NEEDS REPAIR";
   const status = normalizeStatus(run?.overall_status || selectedRunSummary?.overall_status);
   const hasFailedAgent = (selectedRunSummary?.failed_agent_count || run?.failed_agent_count || 0) > 0;
   const hasSemanticFailure = (finalResult.semantic_expectations || []).some((item) => item.status === "failed");

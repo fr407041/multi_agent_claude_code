@@ -1,14 +1,14 @@
 {
   "package_schema_version": 1,
-  "release_id": "2026.07.11-company.11",
+  "release_id": "2026.07.11-company.12",
   "runtime_files": [
     {
       "path": "scripts/package_contract.py",
-      "sha256": "597986aa0e229f6b1283010bef095591233396302e7dffa45cdfb4d0766ff581"
+      "sha256": "1e52af550e68c57a2e5d6bde0952c7c8d15e6680cb1b6577a4fe7b8dfa10b43a"
     },
     {
       "path": "scripts/validate_ai_company_spec.py",
-      "sha256": "42fd96b5f4fd859fa55c893184dd972880b6928fadff3b3b40af5489c38bc41e"
+      "sha256": "2638d27f142852412b99c90cd6355b018a7ca1b2baa86f914fece53561bf14af"
     },
     {
       "path": "scripts/verify_install.py",
@@ -28,7 +28,7 @@
     },
     {
       "path": "scripts/run_ai_company_execution.py",
-      "sha256": "2f0f4455a8cea07844ee5217b931716d6db115d63e3bac68da50312bdb108869"
+      "sha256": "885a84271e93382beb1e9a886d4295328f62eb4212b96b0dce7effaa322d9f6e"
     },
     {
       "path": "scripts/run_ai_company_reviewer_worker.py",
@@ -64,11 +64,11 @@
     },
     {
       "path": "scripts/goal_driven_workflow.py",
-      "sha256": "6a499cf7268e74d78b5b42c6e395d9df68ea023970b164e6ada9f7cf5c7d38d9"
+      "sha256": "cf52dce7193b5dcdcb044bdcbc2c3005dca6d115aea3af848db1e8424ec7d500"
     },
     {
       "path": "scripts/run_goal_driven_workflow.py",
-      "sha256": "964b25485da639649fcba0f4113f71d2298ea4a0127398e69000737c1df5e416"
+      "sha256": "9a4887cb25400e51d9efa27889f571889c19dbb59c48e96a3ff11536be8c8938"
     },
     {
       "path": "scripts/prepare_common_research_case.py",
@@ -84,7 +84,7 @@
     },
     {
       "path": "scripts/worker_claude_router.py",
-      "sha256": "5f15147e6c7b8bc38721f99df124897c63519bb4c2a4386576ef2fe6089fd3ec"
+      "sha256": "49bb93a63512cddf23ddf23c99776edb7f8aae4eb0dd76bdf0d29b80728f87a1"
     },
     {
       "path": "scripts/worker_claude_router.sh",
@@ -97,6 +97,10 @@
     {
       "path": "scripts/worker_claude_router_managed_single_file.sh",
       "sha256": "72be91bbf77872b97c8959b91428d4cdc693178af06d19f1bb2ecf3fb8489c18"
+    },
+    {
+      "path": "scripts/worker_claude_router_managed_multi_file.sh",
+      "sha256": "04720fc37b6e8648d425a5560da5dd97b7931be60f77498a5d775e2e89194d19"
     },
     {
       "path": "configs/ai_company/agent_profiles.json",
@@ -246,7 +250,7 @@
   "skill_files": [
     {
       "path": "SKILL.md",
-      "sha256": "1829a26aa71187d434a812c7b3cc2440ad16f4b156726f116ac8c6faffe8016d"
+      "sha256": "b913d7ad5f8200b403bea21d0764cae6ec3345e12dba2f3cc85315cc23e9931b"
     },
     {
       "path": "agents/openai.yaml",

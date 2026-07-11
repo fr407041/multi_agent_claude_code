@@ -6,12 +6,15 @@ import unittest
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
-from scripts.goal_driven_workflow import deterministic_goal_plan, validate_goal_plan, verify_job_contract
+from scripts.goal_driven_workflow import build_final_verdict, deterministic_goal_plan, normalize_goal_plan, validate_goal_plan, verify_job_contract
+from scripts.run_goal_driven_workflow import main as run_goal_main
 from scripts.run_ai_company_reviewer_worker import verify_summary_artifact
 from scripts.validate_ai_company_spec import validate_spec
-from scripts.worker_claude_router import build_prompt_details
+from scripts.worker_claude_router import build_prompt_details, extract_multi_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,6 +25,51 @@ class GoalDrivenWorkflowTests(unittest.TestCase):
         report = validate_goal_plan(plan)
         self.assertTrue(report["passed"], report["errors"])
         self.assertEqual(report["topological_order"], ["job-001", "job-002"])
+
+    def test_two_outputs_select_managed_multi_file_contract(self) -> None:
+        plan = normalize_goal_plan("Analyze", {"jobs": [{
+            "id": "analysis", "capability": "analyze", "inputs": ["source.txt"],
+            "outputs": ["analysis.json", "claims.txt"], "tools": ["read", "write"],
+            "acceptance_criteria": [
+                {"type": "json_valid", "path": "analysis.json"},
+                {"type": "artifact_exists", "path": "claims.txt"},
+            ],
+        }]}, 4, ["source.txt"])
+        self.assertEqual(plan["jobs"][0]["worker_template"], "managed_multi_file")
+        parsed = extract_multi_artifacts(
+            'STATUS: SUCCESS\nARTIFACTS_JSON_START\n{"artifacts":[{"path":"analysis.json","content":"{}"},{"path":"claims.txt","content":"claim"}]}\nARTIFACTS_JSON_END',
+            ["analysis.json", "claims.txt"],
+        )
+        self.assertEqual(set(parsed), {"analysis.json", "claims.txt"})
+
+    def test_live_planner_repairs_invalid_dag_within_budget(self) -> None:
+        invalid = '{"jobs":[{"id":"a","capability":"acquire","outputs":["evidence.json"],"tools":["network"],"acceptance_criteria":[{"type":"json_valid","path":"evidence.json"}]}]}'
+        valid = '{"jobs":[{"id":"b","capability":"synthesize","inputs":["source.txt"],"outputs":["summary.md"],"tools":["read","write"],"acceptance_criteria":[{"type":"artifact_exists","path":"summary.md"},{"type":"goal_answering"}]}]}'
+        responses = [SimpleNamespace(text=invalid, provider_usage={}), SimpleNamespace(text=valid, provider_usage={})]
+        with tempfile.TemporaryDirectory() as tmp, patch("scripts.run_goal_driven_workflow.resolve_live_meeting_transport", return_value=("claude_cli", "test")), patch(
+            "scripts.run_goal_driven_workflow.call_live_provider_for_turn", side_effect=responses
+        ), patch("scripts.run_goal_driven_workflow.subprocess.run", return_value=SimpleNamespace(returncode=0)), patch.object(
+            sys, "argv", ["run_goal_driven_workflow.py", "--goal", "Summarize", "--mode", "live", "--out-root", tmp,
+                         "--supplied-input", "source.txt", "--max-replans", "1"]
+        ):
+            self.assertEqual(run_goal_main(), 0)
+            artifacts = next((Path(tmp) / ".generated_specs").glob("*-artifacts"))
+            self.assertTrue((artifacts / "dag_validation_report.attempt-001.json").is_file())
+            self.assertTrue((artifacts / "dag_validation_report.attempt-002.json").is_file())
+            self.assertFalse((artifacts / "final_run_verdict.json").exists())
+
+    def test_live_planner_exhaustion_writes_canonical_verdict(self) -> None:
+        invalid = '{"jobs":[{"id":"a","capability":"acquire","outputs":["evidence.json"],"tools":["network"],"acceptance_criteria":[{"type":"json_valid","path":"evidence.json"}]}]}'
+        responses = [SimpleNamespace(text=invalid, provider_usage={}), SimpleNamespace(text=invalid, provider_usage={})]
+        with tempfile.TemporaryDirectory() as tmp, patch("scripts.run_goal_driven_workflow.resolve_live_meeting_transport", return_value=("claude_cli", "test")), patch(
+            "scripts.run_goal_driven_workflow.call_live_provider_for_turn", side_effect=responses
+        ), patch.object(sys, "argv", ["run_goal_driven_workflow.py", "--goal", "Research", "--mode", "live", "--out-root", tmp, "--max-replans", "1"]):
+            self.assertEqual(run_goal_main(), 2)
+            artifacts = next((Path(tmp) / ".generated_specs").glob("*-artifacts"))
+            verdict = json.loads((artifacts / "final_run_verdict.json").read_text(encoding="utf-8"))
+        self.assertEqual(verdict["failure_category"], "PLANNER_CONTRACT_EXHAUSTED")
+        self.assertEqual(verdict["planner_attempt_count"], 2)
+        self.assertEqual(verdict["model_calls_started"], 2)
 
     def test_cycle_missing_producer_unsafe_path_and_tool_are_rejected(self) -> None:
         plan = {
@@ -72,6 +120,17 @@ class GoalDrivenWorkflowTests(unittest.TestCase):
         self.assertFalse(report["all_passed"])
         self.assertEqual(report["failure_category"], "EXTERNAL_DEPENDENCY_FAILED")
         self.assertEqual(report["missing_artifacts"], ["acquired.json"])
+
+    def test_verified_subset_is_partial_not_false_pass(self) -> None:
+        verdict = build_final_verdict(
+            "run-partial", {"passed": True},
+            {"jobs": [
+                {"job_id": "job-001", "all_passed": True},
+                {"job_id": "job-002", "all_passed": False, "failure_category": "ARTIFACT_CONTRACT_FAILED", "failed_checks": []},
+            ], "blocked_descendants": ["job-003"]}, [],
+        )
+        self.assertEqual(verdict["overall_status"], "partial")
+        self.assertEqual(verdict["accepted_job_count"], 1)
 
     def test_common_summary_never_implicitly_uses_fixture_verifier(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ALLOWED_WORKER_TEMPLATES = {
     "summary_markdown",
     "managed_single_file",
+    "managed_multi_file",
     "bounded_worker",
     "inspection_only",
 }
@@ -85,6 +86,10 @@ def validate_spec(spec_path: Path, root: Path = ROOT) -> dict[str, Any]:
             errors.append({"code": "VERIFIER_SCOPE_MISMATCH", "detail": f"{verifier_id} must explicitly select {expected_script}"})
     seen_ids: set[str] = set()
     output_owners: dict[str, list[str]] = {}
+    try:
+        profile_registry = json.loads((root / "configs/ai_company/agent_profiles.json").read_text(encoding="utf-8")).get("profiles", {})
+    except (OSError, json.JSONDecodeError):
+        profile_registry = {}
     worker_errors = 0
     for index, job in enumerate(jobs):
         if not isinstance(job, dict):
@@ -116,6 +121,22 @@ def validate_spec(spec_path: Path, root: Path = ROOT) -> dict[str, Any]:
         if bool(job.get("require_change")) and template == "inspection_only":
             worker_errors += 1
             errors.append({"code": "WORKER_TEMPLATE_CONFLICT", "detail": f"{job_id}: inspection_only cannot require change"})
+        output_count = len(job.get("outputs", files) if isinstance(job.get("outputs", files), list) else [])
+        if template == "managed_single_file" and output_count != 1:
+            worker_errors += 1
+            errors.append({"code": "WORKER_OUTPUT_COUNT_MISMATCH", "detail": f"{job_id}: managed_single_file requires exactly one output"})
+        if template == "managed_multi_file" and output_count != 2:
+            worker_errors += 1
+            errors.append({"code": "WORKER_OUTPUT_COUNT_MISMATCH", "detail": f"{job_id}: managed_multi_file requires exactly two outputs"})
+        if template == "bounded_worker" and bool(job.get("require_change")):
+            worker_errors += 1
+            errors.append({"code": "WORKER_TEMPLATE_CONFLICT", "detail": f"{job_id}: bounded_worker cannot own required output changes"})
+        profile_id = str(job.get("agent_profile", ""))
+        profile = profile_registry.get(profile_id, {}) if isinstance(profile_registry, dict) else {}
+        allowed_templates = (profile.get("scope_limits") or {}).get("allowed_worker_templates", []) if isinstance(profile, dict) else []
+        if allowed_templates and template not in allowed_templates and "auto" not in allowed_templates:
+            worker_errors += 1
+            errors.append({"code": "WORKER_PROFILE_MISMATCH", "detail": f"{job_id}: {profile_id} does not allow {template}"})
 
     command_errors = 0
     for field in ["prep_command", "post_verify_command"]:
