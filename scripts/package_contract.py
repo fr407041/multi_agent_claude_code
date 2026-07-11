@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 
 PACKAGE_SCHEMA_VERSION = 1
-RELEASE_ID = "2026.07.11-company.12"
+RELEASE_ID = "2026.07.11-company.13"
 MANIFEST_PATH = Path("release") / "ai_company_package_manifest.json"
 
 CANONICAL_ROLES = [
@@ -87,6 +87,8 @@ SKILL_REQUIRED_PATHS = [
     "scripts/smoke_dashboard.sh",
     "assets/agent_os_mvp/backend/app/main.py",
     "assets/agent_os_mvp/backend/app/services/ai_company_monitor.py",
+    "assets/agent_os_mvp/backend/app/services/session_store.py",
+    "assets/agent_os_mvp/backend/app/services/claude_session.py",
     "assets/agent_os_mvp/backend/requirements.txt",
     "assets/agent_os_mvp/frontend/package.json",
     "assets/agent_os_mvp/frontend/package-lock.json",

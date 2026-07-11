@@ -20,6 +20,10 @@ CRITERIA = {
     "derived_provenance",
     "claim_evidence",
     "goal_answering",
+    "non_empty",
+    "json_min_items",
+    "json_required_paths",
+    "text_min_chars",
 }
 VERIFIER_REGISTRY = {
     "common_research": "scripts/verify_common_research_artifact.py",
@@ -99,6 +103,12 @@ def validate_goal_plan(plan: dict[str, Any], max_jobs: int = 8) -> dict[str, Any
             criterion_type = criterion.get("type") if isinstance(criterion, dict) else ""
             if criterion_type not in CRITERIA:
                 errors.append({"code": "DAG_CRITERION_UNSUPPORTED", "detail": f"{job_id}:{criterion_type or criterion}"})
+            elif criterion_type == "json_min_items" and (not isinstance(criterion.get("min_items"), int) or int(criterion.get("min_items", 0)) < 1):
+                errors.append({"code": "DAG_CRITERION_INVALID", "detail": f"{job_id}:json_min_items"})
+            elif criterion_type == "json_required_paths" and not criterion.get("json_paths"):
+                errors.append({"code": "DAG_CRITERION_INVALID", "detail": f"{job_id}:json_required_paths"})
+            elif criterion_type == "text_min_chars" and (not isinstance(criterion.get("min_chars"), int) or int(criterion.get("min_chars", 0)) < 1):
+                errors.append({"code": "DAG_CRITERION_INVALID", "detail": f"{job_id}:text_min_chars"})
         if any(isinstance(item, dict) and item.get("type") == "command_success" for item in criteria) and not str(job.get("test_command", "")).strip():
             errors.append({"code": "DAG_TEST_COMMAND_MISSING", "detail": job_id})
         test_command = str(job.get("test_command", "")).strip()
@@ -114,7 +124,7 @@ def validate_goal_plan(plan: dict[str, Any], max_jobs: int = 8) -> dict[str, Any
                 errors.append({"code": "DAG_NETWORK_SOURCE_UNSAFE", "detail": f"{job_id}:{source_url or '<missing>'}"})
         covered_outputs = {
             str(item.get("path")) for item in criteria
-            if isinstance(item, dict) and item.get("type") in {"artifact_exists", "json_valid", "json_path_equals", "numeric_compare", "derived_provenance"}
+            if isinstance(item, dict) and item.get("type") in {"artifact_exists", "json_valid", "json_path_equals", "numeric_compare", "derived_provenance", "non_empty", "json_min_items", "json_required_paths", "text_min_chars"}
         }
         for output in map(str, outputs):
             if output not in covered_outputs:
@@ -134,6 +144,22 @@ def validate_goal_plan(plan: dict[str, Any], max_jobs: int = 8) -> dict[str, Any
                 errors.append({"code": "DAG_INPUT_DEPENDENCY_MISSING", "detail": f"{job_id}:{input_path}:{producer}"})
             if not producer and input_path not in set(map(str, plan.get("supplied_inputs", []))):
                 errors.append({"code": "DAG_INPUT_PRODUCER_MISSING", "detail": f"{job_id}:{input_path}"})
+    try:
+        profiles = json.loads((Path(__file__).resolve().parents[1] / "configs/ai_company/agent_profiles.json").read_text(encoding="utf-8")).get("profiles", {})
+    except (OSError, json.JSONDecodeError):
+        profiles = {}
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        profile = profiles.get(str(job.get("agent_profile", "")), {}) if isinstance(profiles, dict) else {}
+        limits = profile.get("scope_limits", {}) if isinstance(profile, dict) else {}
+        max_files = int(limits.get("max_files", 0) or 0)
+        if max_files and len(job.get("outputs", [])) > max_files:
+            errors.append({"code": "PROFILE_SCOPE_LIMIT_EXCEEDED", "detail": f"{job.get('id')}:{len(job.get('outputs', []))}>{max_files}"})
+        allowed_templates = limits.get("allowed_worker_templates", [])
+        template = str(job.get("worker_template", ""))
+        if allowed_templates and template not in allowed_templates and "auto" not in allowed_templates:
+            errors.append({"code": "WORKER_PROFILE_MISMATCH", "detail": f"{job.get('id')}:{template}"})
     order, cyclic = _topological_order(jobs)
     if cyclic:
         errors.append({"code": "DAG_CYCLE", "detail": cyclic})
@@ -203,6 +229,16 @@ def normalize_goal_plan(goal: str, payload: dict[str, Any], max_jobs: int, suppl
     jobs = [job for job in jobs if job["id"] not in redundant_ids]
     for job in jobs:
         job["depends_on"] = [dep for dep in job.get("depends_on", []) if dep not in redundant_ids]
+    consumed_outputs = {str(path) for job in jobs for path in job.get("inputs", [])}
+    for job in jobs:
+        criteria = job.get("acceptance_criteria", [])
+        meaningful_paths = {
+            str(item.get("path", "")) for item in criteria
+            if isinstance(item, dict) and item.get("type") in {"non_empty", "json_min_items", "json_required_paths", "text_min_chars"}
+        }
+        for output in map(str, job.get("outputs", [])):
+            if output in consumed_outputs and output not in meaningful_paths:
+                criteria.append({"type": "non_empty", "path": output})
     if jobs and not any(item.get("type") == "goal_answering" for item in jobs[-1].get("acceptance_criteria", [])):
         jobs[-1]["acceptance_criteria"].append({"type": "goal_answering"})
     return {"goal": goal, "supplied_inputs": supplied_inputs, "max_jobs": max_jobs, "jobs": jobs}
@@ -243,6 +279,21 @@ def verify_job_contract(run_dir: Path, job: dict[str, Any], status: dict[str, An
     checks: list[dict[str, Any]] = []
     missing_artifacts: list[str] = []
     missing_inputs = [path for path in map(str, job.get("inputs", [])) if not (worktree / path).is_file()]
+    insufficient_inputs: list[str] = []
+    for rel in map(str, job.get("inputs", [])):
+        source = worktree / rel
+        if not source.is_file():
+            continue
+        try:
+            text = source.read_text(encoding="utf-8", errors="ignore").strip()
+            if not text:
+                insufficient_inputs.append(rel)
+            elif source.suffix.lower() == ".json":
+                parsed = json.loads(text)
+                if isinstance(parsed, (dict, list)) and not parsed:
+                    insufficient_inputs.append(rel)
+        except (OSError, json.JSONDecodeError):
+            insufficient_inputs.append(rel)
     for criterion in job.get("acceptance_criteria", []):
         if not isinstance(criterion, dict):
             continue
@@ -277,6 +328,22 @@ def verify_job_contract(run_dir: Path, job: dict[str, Any], status: dict[str, An
                 passed = bool(claims) and all(item.get("evidence_refs") for item in claims)
             elif kind == "goal_answering":
                 passed = bool(claims) and any(len(str(item.get("claim", "")).strip()) >= 20 for item in claims)
+            elif kind == "non_empty":
+                content = target.read_text(encoding="utf-8", errors="ignore").strip()
+                if target.suffix.lower() == ".json":
+                    parsed = json.loads(content)
+                    passed = bool(parsed) if isinstance(parsed, (dict, list, str)) else parsed is not None
+                else:
+                    passed = bool(content)
+            elif kind == "json_min_items":
+                parsed = json.loads(target.read_text(encoding="utf-8"))
+                found, value = read_dot_path(parsed, str(criterion.get("json_path", ""))) if criterion.get("json_path") else (True, parsed)
+                passed = found and isinstance(value, (dict, list)) and len(value) >= int(criterion.get("min_items", 1))
+            elif kind == "json_required_paths":
+                parsed = json.loads(target.read_text(encoding="utf-8"))
+                passed = all(read_dot_path(parsed, str(required))[0] for required in criterion.get("json_paths", []))
+            elif kind == "text_min_chars":
+                passed = len(target.read_text(encoding="utf-8", errors="ignore").strip()) >= int(criterion.get("min_chars", 1))
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             detail = str(exc)
             passed = False
@@ -290,13 +357,13 @@ def verify_job_contract(run_dir: Path, job: dict[str, Any], status: dict[str, An
     failure_family = str(status.get("failure_family", "")).lower()
     if failure_family == "external_dependency":
         category = "EXTERNAL_DEPENDENCY_FAILED"
-    elif missing_inputs:
+    elif missing_inputs or insufficient_inputs:
         category = "INPUT_INSUFFICIENT"
     else:
         category = "ARTIFACT_CONTRACT_FAILED" if failed else ""
     return {
-        "job_id": job.get("id"), "all_passed": not failed and not missing_inputs, "checks": checks,
-        "failed_checks": failed, "missing_inputs": missing_inputs, "missing_artifacts": sorted(set(missing_artifacts)),
+        "job_id": job.get("id"), "all_passed": not failed and not missing_inputs and not insufficient_inputs, "checks": checks,
+        "failed_checks": failed, "missing_inputs": sorted(set(missing_inputs + insufficient_inputs)), "insufficient_inputs": insufficient_inputs, "missing_artifacts": sorted(set(missing_artifacts)),
         "failure_category": category,
     }
 

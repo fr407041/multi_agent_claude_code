@@ -2,10 +2,10 @@
 
 This folder contains a lightweight dashboard for AI-company run artifacts.
 
-It is intentionally small:
+It supports a simple local mode and an optional session-service mode:
 
 - FastAPI backend
-- SQLite metadata cache
+- SQLite metadata cache by default; PostgreSQL in Docker Compose
 - React + Vite frontend
 - Linux helper scripts
 
@@ -26,6 +26,18 @@ It shows:
 - profile governance
 - claim/evidence summary
 - memory guard and watchdog state
+
+The optional Main Agent Chat invokes the installed Claude CLI and inherits its existing Router configuration. It records only explicit messages, lifecycle events, and artifact references, never hidden reasoning.
+
+## Session And Chat API
+
+```text
+POST /api/v1/chat
+GET  /api/v1/dashboard/{session_id}
+GET  /api/v1/dashboard/config
+```
+
+Chat requests use `{"prompt":"Run a bounded task","session_id":null}`. Reuse the returned `session_id` on later turns. Session artifacts are written below `AGENT_OS_SESSION_ROOT`.
 
 ## Quick Start
 
@@ -85,6 +97,16 @@ bash .claude/skills/research-task-orchestrator/scripts/start_dashboard.sh
 ```
 
 The skill installer copies bundled dashboard assets into `./agent_os_mvp`, installs Python/npm dependencies, then starts the local services.
+
+## Docker Compose With PostgreSQL
+
+```bash
+export CLAUDE_CONFIG_DIR="$HOME/.claude"
+export AGENT_OS_POSTGRES_PASSWORD="change-this-local-password"
+docker compose up --build
+```
+
+Docker mode installs Claude Code in the backend image and mounts the existing Claude configuration read-only. Direct Ubuntu installation continues to use SQLite and does not require Docker or PostgreSQL.
 
 ## Do Not Commit Runtime Outputs
 

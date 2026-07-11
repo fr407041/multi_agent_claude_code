@@ -1075,3 +1075,75 @@ select {
     gap: 2px;
   }
 }
+
+.session-console {
+  margin-bottom: 18px;
+  padding: 18px;
+}
+
+.session-console summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.session-toolbar,
+.session-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.session-toolbar {
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: end;
+}
+
+.session-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.session-toolbar label,
+.chat-form {
+  display: grid;
+  gap: 8px;
+}
+
+.session-console input,
+.session-console textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  font: inherit;
+}
+
+.session-feed {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+.session-feed article + article {
+  border-top: 1px solid var(--line);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.dashboard-shell[data-show-progress="false"] .operator-overview,
+.dashboard-shell[data-show-agent-logs="false"] .board-section,
+.dashboard-shell[data-show-artifacts="false"] .sensemaking-tabs,
+.dashboard-shell[data-show-artifacts="false"] .details-section {
+  display: none;
+}
+
+@media (max-width: 680px) {
+  .session-toolbar,
+  .session-grid {
+    grid-template-columns: 1fr;
+  }
+}

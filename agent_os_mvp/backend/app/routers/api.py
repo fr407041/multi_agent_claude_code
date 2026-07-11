@@ -1,15 +1,58 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+import os
+
+from fastapi import APIRouter, Header, HTTPException
 
 from app.db import get_db
-from app.schemas import DashboardResponse, GoalCreate, GoalCreatedResponse
+from app.schemas import ChatRequest, ChatResponse, DashboardResponse, GoalCreate, GoalCreatedResponse, HookEventRequest
 from app.services.ai_company_monitor import collect_ai_company_monitor, get_ai_company_run_detail
 from app.services.agent_engine import create_goal, execute_task, plan_tasks
 from app.services.dashboard import collect_dashboard
+from app.services.claude_session import run_chat
+from app.services.session_store import append_event, ensure_session, session_dashboard
 
 
 router = APIRouter(prefix="/api", tags=["agent-os"])
+
+
+@router.post("/v1/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest):
+    try:
+        return run_chat(payload.prompt, payload.session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/v1/dashboard/config")
+def dashboard_config():
+    def enabled(name: str, default: bool = True) -> bool:
+        return os.getenv(name, "1" if default else "0").strip().lower() not in {"0", "false", "no", "off"}
+    return {
+        "show_progress_bar": enabled("AGENT_OS_SHOW_PROGRESS_BAR"),
+        "show_agent_logs": enabled("AGENT_OS_SHOW_AGENT_LOGS"),
+        "show_artifacts": enabled("AGENT_OS_SHOW_ARTIFACTS"),
+        "show_chat": enabled("AGENT_OS_SHOW_CHAT"),
+        "event_policy": "explicit_messages_tools_status_artifacts_only",
+    }
+
+
+@router.get("/v1/dashboard/{session_id}")
+def session_detail(session_id: str):
+    payload = session_dashboard(session_id)
+    if payload["session"] is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return payload
+
+
+@router.post("/v1/hooks/events")
+def collect_hook_event(payload: HookEventRequest, x_agent_os_hook_token: str | None = Header(default=None)):
+    expected = os.getenv("AGENT_OS_HOOK_TOKEN", "").strip()
+    if expected and x_agent_os_hook_token != expected:
+        raise HTTPException(status_code=401, detail="Invalid hook token")
+    ensure_session(payload.session_id)
+    append_event(payload.session_id, payload.event_type, payload.agent_role, payload.payload)
+    return {"accepted": True, "session_id": payload.session_id}
 
 
 @router.post("/goals", response_model=GoalCreatedResponse)

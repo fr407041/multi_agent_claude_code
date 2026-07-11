@@ -8,12 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
 from app.routers.api import router as api_router
-from app.services.ai_company_monitor import get_results_root
+from app.services.ai_company_monitor import get_project_root, get_results_root
+from app.services.session_store import init_session_store
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    init_session_store()
     yield
 
 
@@ -43,7 +45,7 @@ app.include_router(api_router)
 
 def checkout_marker():
     dashboard_root = Path(__file__).resolve().parents[2]
-    project_root = dashboard_root.parent
+    project_root = get_project_root()
     return {
         "status": "ok",
         "app": "agent_os_mvp",

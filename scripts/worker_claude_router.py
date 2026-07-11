@@ -451,9 +451,16 @@ def main() -> int:
     status = status_from_raw(raw, exit_code)
     failed_reason = ""
     if status == "SUCCESS" and worker_kind in {"summary", "managed"} and files:
-        target = scope / files[0]
+        target = (scope / files[0]).resolve()
+        try:
+            target.relative_to(scope)
+        except ValueError:
+            status = "FAILED"
+            failed_reason = f"output path escapes run scope: {files[0]}"
+            target = scope / ".blocked-output"
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(extract_summary_content(raw), encoding="utf-8")
+        if status == "SUCCESS":
+            target.write_text(extract_summary_content(raw), encoding="utf-8")
     if status == "SUCCESS" and worker_kind == "multi":
         try:
             artifacts = extract_multi_artifacts(raw, files)

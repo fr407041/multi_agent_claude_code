@@ -51,7 +51,10 @@
               "json_path": { "type": "string" },
               "expected": {},
               "operator": { "type": "string" },
-              "value": {}
+              "value": {},
+              "min_items": { "type": "integer", "minimum": 1 },
+              "json_paths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "min_chars": { "type": "integer", "minimum": 1 }
             },
             "additionalProperties": false
           }

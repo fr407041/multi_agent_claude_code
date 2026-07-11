@@ -134,9 +134,13 @@ def validate_spec(spec_path: Path, root: Path = ROOT) -> dict[str, Any]:
         profile_id = str(job.get("agent_profile", ""))
         profile = profile_registry.get(profile_id, {}) if isinstance(profile_registry, dict) else {}
         allowed_templates = (profile.get("scope_limits") or {}).get("allowed_worker_templates", []) if isinstance(profile, dict) else []
+        max_files = int((profile.get("scope_limits") or {}).get("max_files", 0) or 0) if isinstance(profile, dict) else 0
         if allowed_templates and template not in allowed_templates and "auto" not in allowed_templates:
             worker_errors += 1
             errors.append({"code": "WORKER_PROFILE_MISMATCH", "detail": f"{job_id}: {profile_id} does not allow {template}"})
+        if max_files and len(files) > max_files:
+            worker_errors += 1
+            errors.append({"code": "PROFILE_SCOPE_LIMIT_EXCEEDED", "detail": f"{job_id}: {len(files)} > {max_files}"})
 
     command_errors = 0
     for field in ["prep_command", "post_verify_command"]:

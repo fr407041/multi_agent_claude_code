@@ -10,7 +10,20 @@ from sqlite3 import Connection
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+def get_project_root() -> Path:
+    configured = os.environ.get("AI_COMPANY_PROJECT_ROOT", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    resolved = Path(__file__).resolve()
+    # Source checkout: <project>/agent_os_mvp/backend/app/services/...
+    if len(resolved.parents) > 4:
+        return resolved.parents[4]
+    # Container/runtime fallback: keep all relative paths under the app root.
+    return resolved.parents[-1]
+
+
+REPO_ROOT = get_project_root()
 
 
 def get_results_root() -> Path:

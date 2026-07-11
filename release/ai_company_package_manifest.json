@@ -1,14 +1,14 @@
 {
   "package_schema_version": 1,
-  "release_id": "2026.07.11-company.12",
+  "release_id": "2026.07.11-company.13",
   "runtime_files": [
     {
       "path": "scripts/package_contract.py",
-      "sha256": "1e52af550e68c57a2e5d6bde0952c7c8d15e6680cb1b6577a4fe7b8dfa10b43a"
+      "sha256": "d08a561d532376730bb6f42587ba7ceeef11b686a88802073390957e19d43557"
     },
     {
       "path": "scripts/validate_ai_company_spec.py",
-      "sha256": "2638d27f142852412b99c90cd6355b018a7ca1b2baa86f914fece53561bf14af"
+      "sha256": "b3af877aa05c97f4cf32403c4a3e36a165fa96eca858ec4a9a427fcb155a1880"
     },
     {
       "path": "scripts/verify_install.py",
@@ -20,7 +20,7 @@
     },
     {
       "path": "scripts/materialize_ai_company_task_run.py",
-      "sha256": "58dd7110b3a55243152974aa6b48c12a300bc39c181839c4476b672c6f402883"
+      "sha256": "b0f33d456ef60bba39997f25c0178c6e6734e246adb84130a8ae69e7730cc6f7"
     },
     {
       "path": "scripts/run_ai_company_meeting.py",
@@ -28,7 +28,7 @@
     },
     {
       "path": "scripts/run_ai_company_execution.py",
-      "sha256": "885a84271e93382beb1e9a886d4295328f62eb4212b96b0dce7effaa322d9f6e"
+      "sha256": "e4acb0d6b2a04253c1cf034c3c9f7de440f6d1ace9708b07d0b6d135b2b233a0"
     },
     {
       "path": "scripts/run_ai_company_reviewer_worker.py",
@@ -52,23 +52,23 @@
     },
     {
       "path": "scripts/agent_token_ledger.py",
-      "sha256": "479a667fc658d9480555b7afae608976085fc19e0552b2de5c0eab3e5b669219"
+      "sha256": "61ba10e3e6124712bc81ce493df13f388a151517e47ab703e90a283a95eccacb"
     },
     {
       "path": "scripts/bounded_context_loader.py",
-      "sha256": "482521e4f4739e9d99098a1cb5d39637716f6280661e6ec6a74d22fbf819a692"
+      "sha256": "8b8798a1c46b9d7967a25d3652f075f6632a5fe9f7cbcca49fe936d92d5d6879"
     },
     {
       "path": "scripts/run_local_model_action_executor.py",
-      "sha256": "c0ec5ba7ab3e870f9394e731a982c4c72f71cbf19ac7f458dc4fc43d9a6919f0"
+      "sha256": "3773776dcb1749477cdc3436d37d8be9c85c1042094cae4e47ded87cce304892"
     },
     {
       "path": "scripts/goal_driven_workflow.py",
-      "sha256": "cf52dce7193b5dcdcb044bdcbc2c3005dca6d115aea3af848db1e8424ec7d500"
+      "sha256": "8b302357a3a11d4dbdd876eb82bf64b3b71939af8aa518d1ff2836acc7457bb6"
     },
     {
       "path": "scripts/run_goal_driven_workflow.py",
-      "sha256": "9a4887cb25400e51d9efa27889f571889c19dbb59c48e96a3ff11536be8c8938"
+      "sha256": "a818a8ca7f08806bd94df8fcb506338b06636e962dc4b7abc6f7d0d78e82fd12"
     },
     {
       "path": "scripts/prepare_common_research_case.py",
@@ -84,7 +84,7 @@
     },
     {
       "path": "scripts/worker_claude_router.py",
-      "sha256": "49bb93a63512cddf23ddf23c99776edb7f8aae4eb0dd76bdf0d29b80728f87a1"
+      "sha256": "9a4f4c81d1df812c004f1fdbb24db50a21e25c384684e3423e833da13dc6788d"
     },
     {
       "path": "scripts/worker_claude_router.sh",
@@ -112,7 +112,7 @@
     },
     {
       "path": "configs/ai_company/task_assignment.schema.json",
-      "sha256": "190687ce1726cf089056704066c4d7418e4736b156504f409254fa067d8d1f2b"
+      "sha256": "664662ccf0f3f80f21a62a44a81cd99a22d19aec4bebcedda73b3056ea5a4e5a"
     },
     {
       "path": "docs/ai_specs/ai-company-release-readiness-strict-demo.json",
@@ -250,7 +250,7 @@
   "skill_files": [
     {
       "path": "SKILL.md",
-      "sha256": "b913d7ad5f8200b403bea21d0764cae6ec3345e12dba2f3cc85315cc23e9931b"
+      "sha256": "dbbdea5e725c2c77bf59c40832e85bf0fbe2386a367a7b9712243319db3387f8"
     },
     {
       "path": "agents/openai.yaml",
@@ -282,15 +282,23 @@
     },
     {
       "path": "assets/agent_os_mvp/backend/app/main.py",
-      "sha256": "2a0d5294bc5fa5656ee36a5b08c9c5a78deefe0928ac6b96c5128519be334514"
+      "sha256": "d53a2ffd44f9727a8ecc1977cfaa82bdfa6ec9c1aaddf06cd8edab0fdc97905e"
     },
     {
       "path": "assets/agent_os_mvp/backend/app/services/ai_company_monitor.py",
-      "sha256": "c6b14e1a6b9b00ca42f07b7b6336b964828f96f562b74b207348c554ddc4c64f"
+      "sha256": "ab41c53e0b526c25e74a940f1817bbaf647d180318cdafc542dfd6527846ef55"
+    },
+    {
+      "path": "assets/agent_os_mvp/backend/app/services/session_store.py",
+      "sha256": "fa50332182ab17e12fd572eaac696285b8e01632d2df2b2d1c9e0ca7a8063313"
+    },
+    {
+      "path": "assets/agent_os_mvp/backend/app/services/claude_session.py",
+      "sha256": "082b3782e919d527d8f00d400e7ae86091e1251cc148e8e19b1326c16318cd89"
     },
     {
       "path": "assets/agent_os_mvp/backend/requirements.txt",
-      "sha256": "be2f3125f1928ee1176fae161bc8c2bf9f5f006e7346880a4028ab10cf2b40ba"
+      "sha256": "29e79806266d7500cd9e5b57eb39e50b0fe74fccb8aa1977c2dcf61b5de8b869"
     },
     {
       "path": "assets/agent_os_mvp/frontend/package.json",
@@ -302,11 +310,11 @@
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/App.jsx",
-      "sha256": "77eb18bd364205ccecf30a2c8139897756dccc4c527fe46b28d209de8628298e"
+      "sha256": "7e6d14690a75f267cf77e70927794d1d50622f65241b9ec011c76a03fc860ce0"
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/styles.css",
-      "sha256": "9097ae0951d95ac9c38d78d4b994b56bf1ed455651f51b966040b625b79bff4e"
+      "sha256": "049d761af3bb5454836381f8e8b1e79e2c875bcd4d8a4768b6f5b6ee974954a9"
     },
     {
       "path": "assets/agent_os_mvp/start-dashboard.sh",

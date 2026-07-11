@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -76,6 +77,7 @@ An acquire job using network must include source_url. Only runtime-allowlisted h
 Each acceptance criterion must be an object using one of:
 artifact_exists, json_valid, json_path_equals, numeric_compare, command_success,
 derived_provenance, claim_evidence, goal_answering.
+For evidence consumed downstream, require non_empty, json_min_items, json_required_paths, or text_min_chars as appropriate.
 Use only relative safe paths. Every non-supplied input must have exactly one upstream producer.
 Keep each job to at most two outputs. End with a synthesize job that answers the goal.
 For one output use a single-file job. For two outputs, both artifacts must be independently machine-verifiable.
@@ -117,6 +119,7 @@ def main() -> int:
         dag_report = {"passed": False, "errors": []}
         prior_plan: dict[str, Any] | None = None
         errors: list[dict[str, Any]] = []
+        seen_planner_fingerprints: set[str] = set()
         for attempt in range(1, args.max_replans + 2):
             try:
                 plan, planner_metadata = live_goal_plan(
@@ -133,10 +136,20 @@ def main() -> int:
                     "model_calls_started": attempt,
                 }
                 planner_metadata = {"mode": "live", "attempt": attempt, "error": str(exc), "raw_artifact": ""}
+            stable_errors = [{"code": item.get("code", ""), "detail": item.get("detail", "")} for item in dag_report.get("errors", [])]
+            planner_fingerprint = hashlib.sha256(json.dumps({"plan": plan, "errors": stable_errors}, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+            planner_metadata["planner_fingerprint"] = planner_fingerprint
+            unchanged = not dag_report["passed"] and planner_fingerprint in seen_planner_fingerprints
+            if unchanged:
+                dag_report["errors"] = [*dag_report.get("errors", []), {"code": "UNCHANGED_PLANNER_REPAIR_BLOCKED", "detail": planner_fingerprint}]
+                dag_report["status"] = "UNCHANGED_PLANNER_REPAIR_BLOCKED"
+            seen_planner_fingerprints.add(planner_fingerprint)
             write_json(artifact_dir / f"goal_plan.attempt-{attempt:03d}.json", plan)
             write_json(artifact_dir / f"dag_validation_report.attempt-{attempt:03d}.json", dag_report)
             planner_attempts.append({**planner_metadata, "validation": dag_report})
             if dag_report["passed"]:
+                break
+            if unchanged:
                 break
             prior_plan = plan
             errors = list(dag_report.get("errors", []))

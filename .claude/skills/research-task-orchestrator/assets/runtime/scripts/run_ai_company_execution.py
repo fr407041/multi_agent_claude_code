@@ -494,7 +494,15 @@ def execute_job(run_dir: Path, scripts_dir: Path, job_path: Path) -> Path:
 
     if job.get("capability") == "acquire" and job.get("source_url"):
         output = str((job.get("outputs") or job.get("files") or [""])[0])
-        target = Path(str(job.get("scope_path", run_dir / "worktree"))) / output
+        scope_root = Path(str(job.get("scope_path", run_dir / "worktree"))).resolve()
+        expected_worktree = (run_dir / "worktree").resolve()
+        if (read_goal_json(run_dir / "summary.json").get("workflow") or {}).get("mode") == "goal_driven" and scope_root != expected_worktree:
+            raise RuntimeError(f"OUTPUT_SCOPE_VIOLATION: goal job scope {scope_root} is not {expected_worktree}")
+        target = (scope_root / output).resolve()
+        try:
+            target.relative_to(scope_root)
+        except ValueError as exc:
+            raise RuntimeError(f"OUTPUT_SCOPE_VIOLATION: {output}") from exc
         raw_file = results_dir / f"{job['id']}.raw.txt"
         log_file = results_dir / f"{job['id']}.exec.log"
         started = time.monotonic()

@@ -123,13 +123,15 @@ Use the bundled single-page Web GUI when you need a low-dependency monitor for:
 - current run status
 - active agents
 - final result credibility
+- explicit main-agent chat sessions and framework lifecycle events
 - expandable technical details only when needed
 
 Design rules:
 - Keep the default view to one page.
 - Show only three primary sections first: current status, who is working, and whether the result is trustworthy.
 - Keep meeting traces, prompts, raw output, and logs behind expandable details.
-- Use the existing FastAPI + React + SQLite stack only. Do not introduce extra dashboard frameworks unless there is a strong reason.
+- Use the existing FastAPI + React stack. SQLite is the direct-Ubuntu default; PostgreSQL is optional for Docker Compose deployments.
+- Record explicit messages, status, tool/action metadata, and artifact references only. Never request, store, or display hidden chain-of-thought.
 
 Dashboard installation flow:
 

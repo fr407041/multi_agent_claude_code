@@ -12,6 +12,7 @@ from pathlib import Path
 
 from scripts.goal_driven_workflow import build_final_verdict, deterministic_goal_plan, normalize_goal_plan, validate_goal_plan, verify_job_contract
 from scripts.run_goal_driven_workflow import main as run_goal_main
+from scripts.materialize_ai_company_task_run import materialize_run
 from scripts.run_ai_company_reviewer_worker import verify_summary_artifact
 from scripts.validate_ai_company_spec import validate_spec
 from scripts.worker_claude_router import build_prompt_details, extract_multi_artifacts
@@ -131,6 +132,34 @@ class GoalDrivenWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(verdict["overall_status"], "partial")
         self.assertEqual(verdict["accepted_job_count"], 1)
+
+    def test_empty_json_input_routes_recovery_to_its_producer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "worktree").mkdir()
+            (run_dir / "worktree/claims.json").write_text("[]", encoding="utf-8")
+            report = verify_job_contract(
+                run_dir,
+                {"id": "job-002", "inputs": ["claims.json"], "acceptance_criteria": [{"type": "artifact_exists", "path": "summary.md"}]},
+                {"status": "SUCCESS", "exit_code": 0}, [],
+            )
+        self.assertFalse(report["all_passed"])
+        self.assertEqual(report["failure_category"], "INPUT_INSUFFICIENT")
+        self.assertEqual(report["missing_inputs"], ["claims.json"])
+
+    def test_no_input_goal_materializes_run_owned_worktree(self) -> None:
+        spec = json.loads((ROOT / "docs/ai_specs/goal-driven-dependency-recovery-mock.json").read_text(encoding="utf-8"))
+        spec["id"] = "goal-no-input-worktree"
+        spec["scope_copy_from"] = ""
+        spec["goal_plan"]["supplied_inputs"] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            spec_path = Path(tmp) / "spec.json"
+            spec_path.write_text(json.dumps(spec), encoding="utf-8")
+            run_dir = materialize_run(spec_path, Path(tmp) / "runs")
+            summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+            job = json.loads(next((run_dir / "jobs").glob("job-*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(Path(summary["scope_path"]), run_dir / "worktree")
+        self.assertEqual(Path(job["scope_path"]), run_dir / "worktree")
 
     def test_common_summary_never_implicitly_uses_fixture_verifier(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

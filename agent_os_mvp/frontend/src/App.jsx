@@ -341,6 +341,45 @@ export default function App() {
   const [runDetailError, setRunDetailError] = useState("");
   const [lastUpdated, setLastUpdated] = useState("");
   const [activeTab, setActiveTab] = useState("agents");
+  const [chatPrompt, setChatPrompt] = useState("");
+  const [chatSessionId, setChatSessionId] = useState("");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatEvents, setChatEvents] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const [uiConfig, setUiConfig] = useState({ show_progress_bar: true, show_agent_logs: true, show_artifacts: true, show_chat: true });
+
+  async function loadSession(sessionId) {
+    if (!sessionId) return;
+    const response = await fetch(`${API_BASE}/api/v1/dashboard/${sessionId}`);
+    if (!response.ok) throw new Error(`Session load failed: ${response.status}`);
+    const data = await response.json();
+    setChatMessages(data.messages || []);
+    setChatEvents(data.events || []);
+  }
+
+  async function sendChat(event) {
+    event.preventDefault();
+    if (!chatPrompt.trim() || chatLoading) return;
+    setChatLoading(true);
+    setChatError("");
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: chatPrompt.trim(), session_id: chatSessionId || null }),
+      });
+      if (!response.ok) throw new Error(`Chat failed: ${response.status}`);
+      const data = await response.json();
+      setChatSessionId(data.session_id);
+      setChatPrompt("");
+      await loadSession(data.session_id);
+    } catch (err) {
+      setChatError(err.message || "Chat failed");
+    } finally {
+      setChatLoading(false);
+    }
+  }
 
   async function loadMonitor() {
     try {
@@ -377,6 +416,7 @@ export default function App() {
 
   useEffect(() => {
     loadMonitor();
+    fetch(`${API_BASE}/api/v1/dashboard/config`).then((response) => response.ok ? response.json() : null).then((data) => data && setUiConfig(data)).catch(() => {});
     const timer = window.setInterval(loadMonitor, 15000);
     return () => window.clearInterval(timer);
   }, []);
@@ -452,7 +492,12 @@ export default function App() {
   const agentFlow = buildAgentFlow(run, finalResult, watchdog);
 
   return (
-    <main className="dashboard-shell">
+    <main
+      className="dashboard-shell"
+      data-show-progress={String(uiConfig.show_progress_bar)}
+      data-show-agent-logs={String(uiConfig.show_agent_logs)}
+      data-show-artifacts={String(uiConfig.show_artifacts)}
+    >
       <header className="topbar">
         <div className="topbar-title">
           <p className="eyebrow">AI Company</p>
@@ -482,6 +527,37 @@ export default function App() {
 
       {monitorError ? <p className="error-banner">{monitorError}</p> : null}
       {runDetailError ? <p className="error-banner">{runDetailError}</p> : null}
+
+      {uiConfig.show_chat ? <details className="surface session-console">
+        <summary>Main Agent Chat &amp; Session Events</summary>
+        <div className="session-toolbar">
+          <label>
+            Session ID
+            <input value={chatSessionId} onChange={(event) => setChatSessionId(event.target.value)} placeholder="New session if blank" />
+          </label>
+          <button type="button" onClick={() => loadSession(chatSessionId).catch((err) => setChatError(err.message))} disabled={!chatSessionId}>Load session</button>
+        </div>
+        <div className="session-grid">
+          <section>
+            <h3>Explicit messages</h3>
+            <div className="session-feed">
+              {chatMessages.length ? chatMessages.map((message, index) => <article key={`${message.created_at}-${index}`}><strong>{message.role}</strong><p>{message.content}</p></article>) : <p>No messages yet.</p>}
+            </div>
+            <form className="chat-form" onSubmit={sendChat}>
+              <textarea value={chatPrompt} onChange={(event) => setChatPrompt(event.target.value)} placeholder="Send a task to the main Claude agent" rows="4" />
+              <button type="submit" disabled={chatLoading || !chatPrompt.trim()}>{chatLoading ? "Running" : "Send"}</button>
+            </form>
+            {chatError ? <p className="error-banner">{chatError}</p> : null}
+          </section>
+          <section>
+            <h3>Framework events</h3>
+            <div className="session-feed">
+              {chatEvents.length ? chatEvents.map((item, index) => <article key={`${item.created_at}-${index}`}><strong>{item.event_type} · {item.agent_role}</strong><p>{JSON.stringify(item.payload)}</p></article>) : <p>No explicit events yet.</p>}
+            </div>
+            <p className="subcopy">Only explicit messages, status, tools and artifacts are recorded. Hidden reasoning is never collected.</p>
+          </section>
+        </div>
+      </details> : null}
 
       {noRuns ? (
         <section className="empty-state surface">

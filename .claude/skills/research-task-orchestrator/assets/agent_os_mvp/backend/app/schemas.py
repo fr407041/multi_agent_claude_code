@@ -97,3 +97,20 @@ class DashboardResponse(BaseModel):
     reviews: list[ReviewRecord]
     workbuddies: list[WorkBuddyRecord]
     audit_logs: list[AuditLogRecord]
+
+
+class ChatRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=32000)
+    session_id: str | None = Field(default=None, max_length=120)
+
+
+class ChatResponse(BaseModel):
+    response: str
+    session_id: str
+
+
+class HookEventRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=120)
+    event_type: str = Field(min_length=1, max_length=80)
+    agent_role: str = Field(default="system", max_length=80)
+    payload: dict = Field(default_factory=dict)

@@ -51,11 +51,25 @@ def materialize_run(spec_path: Path, out_root: Path | None = None) -> Path:
     except ValueError:
         scope_root = workspace_root
     scope_subdir = str(spec.get("scope_subdir", "."))
-    scope_path = (scope_root / scope_subdir).resolve()
+    goal_driven = (spec.get("workflow") or {}).get("mode") == "goal_driven"
+    scope_path = run_dir / "worktree" if goal_driven or spec.get("scope_copy_from") else (scope_root / scope_subdir).resolve()
     if spec.get("scope_copy_from"):
         source_scope = (scope_root / str(spec["scope_copy_from"])).resolve()
-        scope_path = run_dir / "worktree"
         shutil.copytree(source_scope, scope_path)
+    elif goal_driven:
+        scope_path.mkdir(parents=True, exist_ok=True)
+        source_scope = (scope_root / scope_subdir).resolve()
+        for supplied in map(str, (spec.get("goal_plan") or {}).get("supplied_inputs", [])):
+            source = (source_scope / supplied).resolve()
+            try:
+                source.relative_to(source_scope)
+            except ValueError as exc:
+                raise ValueError(f"supplied input escapes source scope: {supplied}") from exc
+            if source.is_file():
+                target = (scope_path / supplied).resolve()
+                target.relative_to(scope_path.resolve())
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
     jobs = spec.get("jobs", []) or ((spec.get("goal_plan") or {}).get("jobs", []) if (spec.get("workflow") or {}).get("mode") == "goal_driven" else [])
     run_profile_mode, profile_reasons = resolve_run_profile_mode(spec)
     profile_registry = load_agent_profiles()
