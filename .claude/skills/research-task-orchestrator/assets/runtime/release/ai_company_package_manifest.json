@@ -52,15 +52,15 @@
     },
     {
       "path": "scripts/agent_token_ledger.py",
-      "sha256": "61ba10e3e6124712bc81ce493df13f388a151517e47ab703e90a283a95eccacb"
+      "sha256": "479a667fc658d9480555b7afae608976085fc19e0552b2de5c0eab3e5b669219"
     },
     {
       "path": "scripts/bounded_context_loader.py",
-      "sha256": "8b8798a1c46b9d7967a25d3652f075f6632a5fe9f7cbcca49fe936d92d5d6879"
+      "sha256": "482521e4f4739e9d99098a1cb5d39637716f6280661e6ec6a74d22fbf819a692"
     },
     {
       "path": "scripts/run_local_model_action_executor.py",
-      "sha256": "3773776dcb1749477cdc3436d37d8be9c85c1042094cae4e47ded87cce304892"
+      "sha256": "c0ec5ba7ab3e870f9394e731a982c4c72f71cbf19ac7f458dc4fc43d9a6919f0"
     },
     {
       "path": "scripts/goal_driven_workflow.py",
