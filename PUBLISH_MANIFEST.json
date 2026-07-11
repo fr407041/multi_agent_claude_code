@@ -5,6 +5,7 @@
     "README.md",
     "PUBLISH_MANIFEST.json",
     "release/RESTORE.md",
+    "release/ai_company_package_manifest.json",
     ".claude/skills/research-task-orchestrator",
     "scripts/verify_install.py",
     "scripts/run_ai_company_task_harness.py",

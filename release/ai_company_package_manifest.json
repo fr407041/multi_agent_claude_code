@@ -1,14 +1,14 @@
 {
   "package_schema_version": 1,
-  "release_id": "2026.07.11-company.10",
+  "release_id": "2026.07.11-company.11",
   "runtime_files": [
     {
       "path": "scripts/package_contract.py",
-      "sha256": "0ae2755184a77a235debe62be0d88cdc1099b5ef267d81083992a8d9c78ed712"
+      "sha256": "597986aa0e229f6b1283010bef095591233396302e7dffa45cdfb4d0766ff581"
     },
     {
       "path": "scripts/validate_ai_company_spec.py",
-      "sha256": "8823fbd9e18ed28b26af9b5663fc3cffaed49e550588516be03f7ea71e730781"
+      "sha256": "42fd96b5f4fd859fa55c893184dd972880b6928fadff3b3b40af5489c38bc41e"
     },
     {
       "path": "scripts/verify_install.py",
@@ -16,23 +16,23 @@
     },
     {
       "path": "scripts/run_ai_company_task_harness.py",
-      "sha256": "64aebbfdd2cfadf01038c94917a2c3b4f848446a182292b43efc22ebc0570b07"
+      "sha256": "8d8873abe7e2a228e2e94cd05f8274549474f8e8525149ed70c31396c7df93b0"
     },
     {
       "path": "scripts/materialize_ai_company_task_run.py",
-      "sha256": "8286d3728470c3e0a39ab27123eac8fb482646077796506823a3fb6e0a19b0a2"
+      "sha256": "58dd7110b3a55243152974aa6b48c12a300bc39c181839c4476b672c6f402883"
     },
     {
       "path": "scripts/run_ai_company_meeting.py",
-      "sha256": "a9cba6968ab87fca43f7f4e47c7d628a5bfc1c113c61428adec1971137aa9882"
+      "sha256": "6cf78f9eb41ec282ef96473c3aa29a355130375c7499dd85e334fd5f9252b5f9"
     },
     {
       "path": "scripts/run_ai_company_execution.py",
-      "sha256": "ea17b660c20c920331a6f06efb90459f04dbfd384cfbdf9bb0ce9632297d9f84"
+      "sha256": "2f0f4455a8cea07844ee5217b931716d6db115d63e3bac68da50312bdb108869"
     },
     {
       "path": "scripts/run_ai_company_reviewer_worker.py",
-      "sha256": "86fee199e1cb92bd6512ce08afee597ad05b3ca5dd6931d29c5c07624a9ffb79"
+      "sha256": "01d252e62118e870608200262180616ce66f339f4488a8e2bd84466d709bd9d4"
     },
     {
       "path": "scripts/run_ai_company_watchdog.py",
@@ -44,7 +44,7 @@
     },
     {
       "path": "scripts/subagent_claim_ledger.py",
-      "sha256": "daeedaa4865b2d0792d6540b0855e7c2d7743fda1667fd180d138e6f27947fdb"
+      "sha256": "e0cefccd726cb55fd04e4ccd2756cfeca6b805cd5709969fa40dd50f6e3feac9"
     },
     {
       "path": "scripts/agent_profile_resolver.py",
@@ -63,6 +63,14 @@
       "sha256": "c0ec5ba7ab3e870f9394e731a982c4c72f71cbf19ac7f458dc4fc43d9a6919f0"
     },
     {
+      "path": "scripts/goal_driven_workflow.py",
+      "sha256": "6a499cf7268e74d78b5b42c6e395d9df68ea023970b164e6ada9f7cf5c7d38d9"
+    },
+    {
+      "path": "scripts/run_goal_driven_workflow.py",
+      "sha256": "964b25485da639649fcba0f4113f71d2298ea4a0127398e69000737c1df5e416"
+    },
+    {
       "path": "scripts/prepare_common_research_case.py",
       "sha256": "dc25da9c460c0a8dca68e30e02374cff530292407a26c78a234d132db016c3a3"
     },
@@ -76,7 +84,7 @@
     },
     {
       "path": "scripts/worker_claude_router.py",
-      "sha256": "f596b1a019dac690491bcd64c34389eeac484ae0a09cb01f43f9e4f96c15fa37"
+      "sha256": "5f15147e6c7b8bc38721f99df124897c63519bb4c2a4386576ef2fe6089fd3ec"
     },
     {
       "path": "scripts/worker_claude_router.sh",
@@ -99,8 +107,24 @@
       "sha256": "a0d45b537761787e9406b889c14f865afb8741a00e2a7711bce1fb28bfb9bcb1"
     },
     {
+      "path": "configs/ai_company/task_assignment.schema.json",
+      "sha256": "190687ce1726cf089056704066c4d7418e4736b156504f409254fa067d8d1f2b"
+    },
+    {
       "path": "docs/ai_specs/ai-company-release-readiness-strict-demo.json",
       "sha256": "76bfd47777489fd778ea2dacb5a7ac9dd4bdbe9720eacb496efdfea305662abc"
+    },
+    {
+      "path": "docs/ai_specs/goal-driven-dependency-recovery-mock.json",
+      "sha256": "62349f58eeb702784b5350699b439c0f78063b448497d81631c96f487a16cb1f"
+    },
+    {
+      "path": "docs/ai_specs/goal-driven-external-evidence-live.json",
+      "sha256": "078acbe4a29dd1f17da3df5cbfb21f92103e3e56e69156f6332c0d7de0e7cfd0"
+    },
+    {
+      "path": "docs/ai_specs/goal-driven-code-execute-repair-live.json",
+      "sha256": "051d4758619f6c507db7425d25017f6e2b1bbd2212fc0c95677106d542ab5363"
     },
     {
       "path": "tests/fixtures/ai_company_release_readiness_demo/release_brief.md",
@@ -133,6 +157,18 @@
     {
       "path": "tests/fixtures/ai_company_release_readiness_demo/evidence_summary.txt",
       "sha256": "a262f4c7ed9e8108c29129e2f74c35edb1fac827778efa25bc733cf56f44462e"
+    },
+    {
+      "path": "tests/fixtures/goal_driven_supplied/source.txt",
+      "sha256": "4cfe891466ef0415d54e2a0a8799e163a6947e154daca1222bc0ad910d31b847"
+    },
+    {
+      "path": "tests/fixtures/goal_driven_external/evidence.json",
+      "sha256": "f543c6b4088c9c39083c1db21df0eb3e261242201cec2f63f8d77dcc1516919a"
+    },
+    {
+      "path": "tests/fixtures/goal_driven_code/requirements.md",
+      "sha256": "f2d23b9805cc07f542dbb3425ac8eae7c2bc0eefdaa1b169877b95dd178aa7d3"
     },
     {
       "path": ".claude/skills/research-task-orchestrator/agents/roles/meeting_coordinator.md",
@@ -210,7 +246,7 @@
   "skill_files": [
     {
       "path": "SKILL.md",
-      "sha256": "e839e12de32a4c407f24cb0d5e365ff4951d560db5e78c35cfe15ab51f4c462d"
+      "sha256": "1829a26aa71187d434a812c7b3cc2440ad16f4b156726f116ac8c6faffe8016d"
     },
     {
       "path": "agents/openai.yaml",
@@ -246,7 +282,7 @@
     },
     {
       "path": "assets/agent_os_mvp/backend/app/services/ai_company_monitor.py",
-      "sha256": "898694568d08c48b14156f303912c39ae7a907a8ef47451b586e9f7f19ab263d"
+      "sha256": "c6b14e1a6b9b00ca42f07b7b6336b964828f96f562b74b207348c554ddc4c64f"
     },
     {
       "path": "assets/agent_os_mvp/backend/requirements.txt",
@@ -262,7 +298,7 @@
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/App.jsx",
-      "sha256": "7e593b64bc53c66f6caf3500fcf7c2df58a7fe236baa937e6b149241833b8080"
+      "sha256": "77eb18bd364205ccecf30a2c8139897756dccc4c527fe46b28d209de8628298e"
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/styles.css",
