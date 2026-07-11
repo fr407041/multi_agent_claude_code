@@ -56,7 +56,7 @@ FAILURE_FAMILY_ORDER = [
 TERMINAL_SUCCESS_VERDICTS = {"ACCEPTED", "COMPLETE"}
 TERMINAL_FAILURE_VERDICTS = {"FALSE_SUCCESS_BLOCKED", "REPLAN_REQUIRED", "REPAIR_REQUIRED", "PROFILE_POLICY_VIOLATION"}
 NON_TERMINAL_STATES = {"QUEUED", "PENDING", "RUNNING", "IN_PROGRESS", "REVIEW_PENDING"}
-PRIMARY_RUN_STATUSES = {"pass", "fail"}
+PRIMARY_RUN_STATUSES = {"pass", "fail", "partial"}
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -127,6 +127,7 @@ def _build_alerts(
     watchdog: dict[str, Any] | None = None,
     artifact_verify: dict[str, Any] | None = None,
     domain_verdict: dict[str, Any] | None = None,
+    provider_diagnostic: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     kpis = report.get("kpis", {})
     failure_counts = kpis.get("failure_family_counts", {})
@@ -134,6 +135,7 @@ def _build_alerts(
     watchdog = watchdog or {}
     artifact_verify = artifact_verify or {}
     domain_verdict = domain_verdict or {}
+    provider_diagnostic = provider_diagnostic or {}
     if str(report.get("overall_status", "")).lower() == "fail":
         alerts.append({"type": "run_failed", "severity": "red", "title": "Run Failed", "detail": report.get("error") or "The run did not satisfy its execution or verification contract."})
     if str(watchdog.get("watchdog_status", "")).lower() == "escalated":
@@ -184,6 +186,15 @@ def _build_alerts(
                 "severity": _severity_from_alert_type("replan_loop"),
                 "title": "Replan Pressure",
                 "detail": f"Replan required count = {kpis.get('replan_required_count', 0)}. Current task slicing may still be too broad.",
+            }
+        )
+    if provider_diagnostic.get("classification") == "MODEL_VISIBLE_BUT_COMPLETION_TIMEOUT":
+        alerts.append(
+            {
+                "type": "provider_diagnostic_timeout",
+                "severity": "yellow",
+                "title": "Provider Diagnostic Timeout",
+                "detail": provider_diagnostic.get("next_action") or "Direct provider completion timed out; continue with router live gates.",
             }
         )
     if failure_counts.get("timeout", 0) > 0:
@@ -696,11 +707,12 @@ def _build_all_runs_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "total_runs": len(rows),
         "pass_count": status_counts.get("pass", 0),
-        "fail_count": status_counts.get("fail", 0),
+        "fail_count": status_counts.get("fail", 0) + status_counts.get("partial", 0),
         "unknown_count": status_counts.get("unknown", 0),
         "status_breakdown": {
             "pass": status_counts.get("pass", 0),
             "fail": status_counts.get("fail", 0),
+            "partial": status_counts.get("partial", 0),
             "unknown": status_counts.get("unknown", 0),
         },
         "unknown_runs": unknown_runs,
@@ -717,6 +729,9 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     token_ledger = _load_json(ai_dir / "agent_token_ledger.json") if (ai_dir / "agent_token_ledger.json").exists() else {}
     package_preflight = _load_json(ai_dir / "package_preflight_report.json") if (ai_dir / "package_preflight_report.json").exists() else {}
     watchdog = _load_json(ai_dir / "watchdog_report.json") if (ai_dir / "watchdog_report.json").exists() else {}
+    provider_diagnostic = _load_json(ai_dir / "provider_diagnostic_report.json") if (ai_dir / "provider_diagnostic_report.json").exists() else {}
+    if not provider_diagnostic and (run_dir / "provider_diagnostic_report.json").exists():
+        provider_diagnostic = _load_json(run_dir / "provider_diagnostic_report.json")
     domain_verdict = _load_json(ai_dir / "domain_verdict.json") if (ai_dir / "domain_verdict.json").exists() else {}
     final_run_verdict = _load_json(ai_dir / "final_run_verdict.json") if (ai_dir / "final_run_verdict.json").exists() else {}
     goal_plan = _load_json(ai_dir / "goal_plan.json") if (ai_dir / "goal_plan.json").exists() else {}
@@ -764,7 +779,7 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     artifact_verify = report.get("kpis", {}).get("artifact_verify", {}).get("parsed", {})
     if not artifact_verify and (ai_dir / "artifact_verify_report.json").exists():
         artifact_verify = _load_json(ai_dir / "artifact_verify_report.json").get("parsed", {})
-    alerts = _build_alerts(report, watchdog, artifact_verify, domain_verdict)
+    alerts = _build_alerts(report, watchdog, artifact_verify, domain_verdict, provider_diagnostic)
     effective_overall_status = final_run_verdict.get("overall_status") or ("fail" if domain_verdict.get("enabled") and domain_verdict.get("status") != "pass" else report.get("overall_status", "unknown"))
     normalized_claims = _normalize_claims(claim_ledger.get("claims", []))
 
@@ -802,6 +817,7 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "semantic_expectations_passed": artifact_verify.get("semantic_expectations_passed"),
         "schema_context": artifact_verify.get("schema_context", {}),
         "domain_verdict": domain_verdict,
+        "provider_diagnostic": provider_diagnostic,
         "final_run_verdict": final_run_verdict,
         "generic_contract": generic_contract,
         "accepted_count": report.get("kpis", {}).get("accepted_count", 0),
@@ -878,6 +894,7 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
             "overflow_risk_agent_count": current_status["overflow_risk_agent_count"],
         },
         "watchdog": watchdog,
+        "provider_diagnostic": provider_diagnostic,
         "meeting": {
             "meeting_mode": meeting.get("meeting_mode", "deterministic"),
             "live_meeting_used": bool(meeting.get("live_meeting_used", False)),

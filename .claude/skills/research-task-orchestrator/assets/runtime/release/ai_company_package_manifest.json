@@ -4,7 +4,7 @@
   "runtime_files": [
     {
       "path": "scripts/package_contract.py",
-      "sha256": "d08a561d532376730bb6f42587ba7ceeef11b686a88802073390957e19d43557"
+      "sha256": "e45dcbded3e4c446a4a200c7c946ec3110b531fad556ae574650d0388d4fc9a1"
     },
     {
       "path": "scripts/validate_ai_company_spec.py",
@@ -61,6 +61,10 @@
     {
       "path": "scripts/run_local_model_action_executor.py",
       "sha256": "c0ec5ba7ab3e870f9394e731a982c4c72f71cbf19ac7f458dc4fc43d9a6919f0"
+    },
+    {
+      "path": "scripts/probe_provider_diagnostic.py",
+      "sha256": "513ca56e5d9e825e8354aa2cece53e29a9b4ea0b1402066d4ae5495628e87e79"
     },
     {
       "path": "scripts/goal_driven_workflow.py",
@@ -286,7 +290,7 @@
     },
     {
       "path": "assets/agent_os_mvp/backend/app/services/ai_company_monitor.py",
-      "sha256": "ab41c53e0b526c25e74a940f1817bbaf647d180318cdafc542dfd6527846ef55"
+      "sha256": "39d74214eb52307f7bfd90c2596cc4dc7c6796f5c94831c4595cf3fa02510b03"
     },
     {
       "path": "assets/agent_os_mvp/backend/app/services/session_store.py",
@@ -310,7 +314,7 @@
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/App.jsx",
-      "sha256": "7e6d14690a75f267cf77e70927794d1d50622f65241b9ec011c76a03fc860ce0"
+      "sha256": "8c62dac0e842eaa5786f26474735c1475d061a5a82f905754d07318e20ccc410"
     },
     {
       "path": "assets/agent_os_mvp/frontend/src/styles.css",

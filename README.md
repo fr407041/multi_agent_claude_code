@@ -90,6 +90,12 @@ Meeting turns and full worker tasks use separate boundaries:
 3. Direct CCR `/v1/messages` is optional and only used with `AI_COMPANY_LIVE_MEETING_TRANSPORT=ccr_http`.
 4. Model endpoint probes remain optional diagnostics when `AI_COMPANY_PROBE_MODEL_ENDPOINTS=1`.
 
+Direct model-service completion is diagnostic, not the default production gate. For example, an Ollama `/api/tags`
+request may show the model while `/v1/chat/completions` times out during cold start, load pressure, or schema
+compatibility problems. In that case the live runner records `provider_diagnostic_report.json` and continues to the
+Claude Code Router / Claude CLI live gate. Set `AI_COMPANY_REQUIRE_DIRECT_PROVIDER_COMPLETION=1` only when you
+explicitly want raw provider completion timeout to stop the run.
+
 Useful environment overrides:
 
 ```bash
@@ -98,6 +104,16 @@ export AI_COMPANY_CLAUDE_BIN=claude
 export AI_COMPANY_LIVE_MEETING_TIMEOUT_SEC=90
 export AI_COMPANY_LIVE_TRANSPORT_RETRIES=2
 export AI_COMPANY_LIVE_CONTRACT_RETRIES=1
+```
+
+Optional provider diagnostic:
+
+```bash
+export AI_COMPANY_PROBE_MODEL_ENDPOINTS=1
+export MODEL_TAGS_URL=http://127.0.0.1:11434/api/tags
+export MODEL_MODELS_URL=http://127.0.0.1:11434/v1/models
+# Optional only when you intentionally want to probe raw provider completion:
+export MODEL_CHAT_URL=http://127.0.0.1:11434/v1/chat/completions
 ```
 
 Only environments that intentionally use direct CCR HTTP need these optional settings:

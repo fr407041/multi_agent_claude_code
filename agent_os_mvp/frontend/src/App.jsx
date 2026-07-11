@@ -188,7 +188,7 @@ function firstSemanticFailure(finalResult) {
   return (finalResult.semantic_expectations || []).find((item) => item.status === "failed") || null;
 }
 
-function buildTrustGates(finalResult, watchdog, packagePreflight) {
+function buildTrustGates(finalResult, watchdog, packagePreflight, providerDiagnostic) {
   const artifactChecks = finalResult.artifact_checks || {};
   const artifactValues = Object.values(artifactChecks);
   const artifactPassed =
@@ -202,6 +202,13 @@ function buildTrustGates(finalResult, watchdog, packagePreflight) {
   const schemaContext = finalResult.schema_context || {};
   const watchdogStatus = normalizeStatus(watchdog?.watchdog_status || "not-run");
   const domainVerdict = finalResult.domain_verdict || {};
+  const providerStatus = providerDiagnostic?.classification
+    ? providerDiagnostic.classification === "DIRECT_COMPLETION_PASSED"
+      ? "pass"
+      : providerDiagnostic.classification === "MODEL_VISIBLE_BUT_COMPLETION_FAILED"
+        ? "fail"
+        : "warning"
+    : "unknown";
   return [
     {
       key: "package",
@@ -243,10 +250,16 @@ function buildTrustGates(finalResult, watchdog, packagePreflight) {
       status: watchdogStatus === "healthy" ? "pass" : watchdogStatus === "escalated" ? "fail" : "unknown",
       detail: watchdog?.last_action || watchdog?.watchdog_status || "not-run",
     },
+    {
+      key: "provider",
+      label: "Provider",
+      status: providerStatus,
+      detail: providerDiagnostic?.classification || "not probed",
+    },
   ];
 }
 
-function buildNextAction(verdict, finalResult, watchdog, packagePreflight) {
+function buildNextAction(verdict, finalResult, watchdog, packagePreflight, providerDiagnostic) {
   if (packagePreflight.package_integrity && packagePreflight.package_integrity !== "pass") {
     const target = packagePreflight.missing_files?.[0] || packagePreflight.hash_mismatches?.[0]?.path;
     return target
@@ -268,6 +281,9 @@ function buildNextAction(verdict, finalResult, watchdog, packagePreflight) {
   }
   if (normalizeStatus(watchdog?.watchdog_status) === "escalated") {
     return watchdog.last_action || "Review watchdog escalation and rerun the failed task with a narrower scope.";
+  }
+  if (providerDiagnostic?.classification === "MODEL_VISIBLE_BUT_COMPLETION_TIMEOUT") {
+    return providerDiagnostic.next_action || "Direct provider completion timed out; validate the router/Claude live path before changing model settings.";
   }
   const artifactChecks = finalResult.artifact_checks || {};
   const failedArtifactCheck = Object.entries(artifactChecks).find(([, value]) => !value);
@@ -436,6 +452,7 @@ export default function App() {
   const failuresByAgent = run?.failures_by_agent || [];
   const failureSummary = run?.failure_summary || {};
   const watchdog = run?.watchdog || {};
+  const providerDiagnostic = run?.provider_diagnostic || finalResult.provider_diagnostic || {};
   const packagePreflight = run?.package_preflight || {};
   const tokenSummary = run?.token_summary || {};
   const claimLedger = run?.claim_ledger || {};
@@ -487,8 +504,8 @@ export default function App() {
     : "Run detail unavailable";
   const noRuns = !monitorLoading && (monitor.recent_runs || []).length === 0;
   const runVerdict = toRunVerdict(run, selectedRunSummary, finalResult, watchdog);
-  const trustGates = buildTrustGates(finalResult, watchdog, packagePreflight);
-  const nextAction = buildNextAction(runVerdict, finalResult, watchdog, packagePreflight);
+  const trustGates = buildTrustGates(finalResult, watchdog, packagePreflight, providerDiagnostic);
+  const nextAction = buildNextAction(runVerdict, finalResult, watchdog, packagePreflight, providerDiagnostic);
   const agentFlow = buildAgentFlow(run, finalResult, watchdog);
 
   return (
@@ -674,6 +691,7 @@ export default function App() {
                 <MetricTile label="Profile" value={run.run_profile_mode || "n/a"} />
                 <MetricTile label="Artifact" value={finalResult.artifact_score ?? "n/a"} />
                 <MetricTile label="Watchdog" value={watchdog.watchdog_status || "not-run"} />
+                <MetricTile label="Provider Diagnostic" value={providerDiagnostic.classification || "not-run"} />
                 <MetricTile label="Token Total" value={formatTokens(tokenSummary.total_estimated_agent_tokens ?? run.total_estimated_agent_tokens)} />
                 <MetricTile label="Provider Tokens" value={formatTokens(tokenSummary.total_provider_agent_tokens)} />
                 <MetricTile label="Top Token Agent" value={tokenSummary.top_token_agent || run.top_token_agent || "n/a"} />
@@ -818,6 +836,7 @@ export default function App() {
                   artifact_checks: finalResult.artifact_checks,
                   semantic_expectations: finalResult.semantic_expectations,
                   schema_context: finalResult.schema_context,
+                  provider_diagnostic: providerDiagnostic,
                 }, null, 2)}</pre>
               </article>
               <article>

@@ -6,6 +6,9 @@ SPEC_PATH="${1:-${ROOT_DIR}/docs/ai_specs/ai-company-release-readiness-strict-de
 MODE="${2:-live}"
 MODEL_MODELS_URL="${MODEL_MODELS_URL:-${OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}/models}"
 MODEL_TAGS_URL="${MODEL_TAGS_URL:-http://127.0.0.1:11434/api/tags}"
+MODEL_CHAT_URL="${MODEL_CHAT_URL:-}"
+MODEL_NATIVE_GENERATE_URL="${MODEL_NATIVE_GENERATE_URL:-}"
+PROVIDER_DIAGNOSTIC_OUT="${PROVIDER_DIAGNOSTIC_OUT:-${ROOT_DIR}/results/provider_diagnostic_report.json}"
 CCR_BASE_URL="${CCR_BASE_URL:-http://127.0.0.1:3456}"
 CCR_HEALTH_URL="${CCR_HEALTH_URL:-http://127.0.0.1:3456/health}"
 CCR_MESSAGES_URL="${CCR_MESSAGES_URL:-${CCR_BASE_URL%/}/v1/messages}"
@@ -92,21 +95,40 @@ require_command bash
 require_command curl
 require_command python3
 
-if [[ "${AI_COMPANY_PROBE_MODEL_ENDPOINTS:-0}" == "1" ]]; then
-  if ! probe_url "${MODEL_MODELS_URL}"; then
-    if ! probe_url "${MODEL_TAGS_URL}"; then
-      cat >&2 <<EOF
-Optional model service preflight failed.
-Tried:
-  MODEL_MODELS_URL=${MODEL_MODELS_URL}
-  MODEL_TAGS_URL=${MODEL_TAGS_URL}
+run_provider_diagnostic() {
+  local require_direct="${AI_COMPANY_REQUIRE_DIRECT_PROVIDER_COMPLETION:-0}"
+  local -a diagnostic_args
+  diagnostic_args=(
+    "${ROOT_DIR}/scripts/probe_provider_diagnostic.py"
+    --tags-url "${MODEL_TAGS_URL}"
+    --models-url "${MODEL_MODELS_URL}"
+    --model "${PROVIDER_DIAGNOSTIC_MODEL:-${CLAUDE_MODEL_ALIAS:-${CCR_PREFERRED_MODEL:-}}}"
+    --timeout-sec "${LIVE_PREFLIGHT_TIMEOUT_SEC:-15}"
+    --output "${PROVIDER_DIAGNOSTIC_OUT}"
+  )
+  if [[ -n "${MODEL_CHAT_URL}" ]]; then
+    diagnostic_args+=(--chat-url "${MODEL_CHAT_URL}")
+  fi
+  if [[ -n "${MODEL_NATIVE_GENERATE_URL}" ]]; then
+    diagnostic_args+=(--native-generate-url "${MODEL_NATIVE_GENERATE_URL}")
+  fi
+  if [[ "${require_direct}" == "1" ]]; then
+    diagnostic_args+=(--require-direct-completion)
+  fi
 
-This runner is provider-neutral by default. Either fix the model service config
-or rerun without AI_COMPANY_PROBE_MODEL_ENDPOINTS=1 and rely on router health.
-EOF
+  if ! python3 "${diagnostic_args[@]}"; then
+    if [[ "${require_direct}" == "1" ]]; then
+      echo "Required direct provider completion diagnostic failed. See ${PROVIDER_DIAGNOSTIC_OUT}" >&2
       exit 1
     fi
+    echo "Provider diagnostic warning recorded at ${PROVIDER_DIAGNOSTIC_OUT}; continuing to router live gates." >&2
+  else
+    echo "Provider diagnostic recorded at ${PROVIDER_DIAGNOSTIC_OUT}"
   fi
+}
+
+if [[ "${AI_COMPANY_PROBE_MODEL_ENDPOINTS:-0}" == "1" ]]; then
+  run_provider_diagnostic
 fi
 
 if ! probe_url "${CCR_HEALTH_URL}"; then
